@@ -139,13 +139,20 @@ def log_io(func: Callable) -> Callable:
     return wrapper
 
 
-def create_logged_tool(tool_instance: T, name: Optional[str] = None) -> T:
+def create_logged_tool(
+    tool_instance: T,
+    name: Optional[str] = None,
+    tracking_name: Optional[str] = None,
+) -> T:
     """
     Wrap a StructuredTool instance with usage tracking.
 
     Args:
         tool_instance: A StructuredTool instance (from @tool decorator)
-        name: Optional name override for the tool
+        name: Optional name override for the tool (LLM-facing)
+        tracking_name: Optional separate name for usage tracking (e.g., "SerperSearchTool").
+            Defaults to ``name`` when not provided. Use this to map provider-specific
+            billing keys while keeping a generic LLM-facing tool name.
 
     Returns:
         A new tool instance with usage tracking
@@ -158,17 +165,18 @@ def create_logged_tool(tool_instance: T, name: Optional[str] = None) -> T:
     original_coroutine = tool_instance.coroutine
     original_func = tool_instance.func
     tool_name = name or tool_instance.name
+    usage_name = tracking_name or tool_name
 
     async def tracked_coroutine(*args: Any, **kwargs: Any) -> Any:
         tracker = get_tool_tracker()
         if tracker:
-            tracker.record_usage(tool_name, count=1)
+            tracker.record_usage(usage_name, count=1)
         return await original_coroutine(*args, **kwargs)
 
     def tracked_func(*args: Any, **kwargs: Any) -> Any:
         tracker = get_tool_tracker()
         if tracker:
-            tracker.record_usage(tool_name, count=1)
+            tracker.record_usage(usage_name, count=1)
         return original_func(*args, **kwargs)
 
     tracked_tool = tool_instance.copy()

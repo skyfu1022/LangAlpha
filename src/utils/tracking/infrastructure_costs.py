@@ -81,7 +81,8 @@ INFRASTRUCTURE_PRICING = _load_pricing_from_manifest()
 TOOL_TO_SERVICE_MAPPING = {
     "TavilySearchTool": "tavily_search",
     "TavilySearchImages": "tavily_images",
-    "BochaSearchTool": "bocha_search"
+    "BochaSearchTool": "bocha_search",
+    "SerperSearchTool": "serper_search"
 }
 
 
