@@ -66,7 +66,9 @@ def load_agent_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
     return config
 
 
-def get_config(key: str, default: Any = None, config_path: Optional[Path] = None) -> Any:
+def get_config(
+    key: str, default: Any = None, config_path: Optional[Path] = None
+) -> Any:
     """
     Get a configuration value from config.yaml.
 
@@ -83,9 +85,7 @@ def get_config(key: str, default: Any = None, config_path: Optional[Path] = None
 
 
 def get_nested_config(
-    key_path: str,
-    default: Any = None,
-    config_path: Optional[Path] = None
+    key_path: str, default: Any = None, config_path: Optional[Path] = None
 ) -> Any:
     """
     Get a nested configuration value using dot notation.
@@ -103,7 +103,7 @@ def get_nested_config(
     """
     config = load_app_config(config_path)
 
-    keys = key_path.split('.')
+    keys = key_path.split(".")
     value = config
 
     for key in keys:
@@ -119,11 +119,10 @@ def get_nested_config(
 # Application Settings
 # =============================================================================
 
+
 def get_debug_mode() -> bool:
     """Get debug mode flag from config.yaml."""
-    return bool(get_config('debug', False))
-
-
+    return bool(get_config("debug", False))
 
 
 def get_agent_recursion_limit(default: int = 50) -> int:
@@ -137,7 +136,7 @@ def get_agent_recursion_limit(default: int = 50) -> int:
         Configured recursion limit
     """
     try:
-        limit = int(get_config('agent_recursion_limit', default))
+        limit = int(get_config("agent_recursion_limit", default))
         if limit > 0:
             return limit
         else:
@@ -148,8 +147,7 @@ def get_agent_recursion_limit(default: int = 50) -> int:
             return default
     except (ValueError, TypeError) as e:
         logger.warning(
-            f"Invalid agent_recursion_limit value: {e}. "
-            f"Using default value {default}."
+            f"Invalid agent_recursion_limit value: {e}. Using default value {default}."
         )
         return default
 
@@ -165,7 +163,7 @@ def get_workflow_timeout(default: int = 1600) -> int:
         Configured timeout in seconds
     """
     try:
-        timeout = int(get_config('workflow_timeout', default))
+        timeout = int(get_config("workflow_timeout", default))
         if timeout >= 0:  # 0 means no timeout
             return timeout
         else:
@@ -176,8 +174,7 @@ def get_workflow_timeout(default: int = 1600) -> int:
             return default
     except (ValueError, TypeError) as e:
         logger.warning(
-            f"Invalid workflow_timeout value: {e}. "
-            f"Using default value {default}."
+            f"Invalid workflow_timeout value: {e}. Using default value {default}."
         )
         return default
 
@@ -193,7 +190,7 @@ def get_sse_keepalive_interval(default: float = 15.0) -> float:
         Configured keepalive interval in seconds
     """
     try:
-        interval = float(get_config('sse_keepalive_interval', default))
+        interval = float(get_config("sse_keepalive_interval", default))
         if interval > 0:
             return interval
         else:
@@ -204,8 +201,7 @@ def get_sse_keepalive_interval(default: float = 15.0) -> float:
             return default
     except (ValueError, TypeError) as e:
         logger.warning(
-            f"Invalid sse_keepalive_interval value: {e}. "
-            f"Using default value {default}."
+            f"Invalid sse_keepalive_interval value: {e}. Using default value {default}."
         )
         return default
 
@@ -224,7 +220,8 @@ AUTH_SERVICE_URL: str = os.getenv("AUTH_SERVICE_URL", "")
 GINLIX_DATA_URL: str = os.getenv("GINLIX_DATA_URL", "")  # http://localhost:8005
 GINLIX_DATA_WS_URL: str = os.getenv("GINLIX_DATA_WS_URL", "") or (
     GINLIX_DATA_URL.replace("http://", "ws://").replace("https://", "wss://")
-    if GINLIX_DATA_URL else ""
+    if GINLIX_DATA_URL
+    else ""
 )
 GINLIX_DATA_ENABLED: bool = bool(GINLIX_DATA_URL)
 
@@ -232,36 +229,48 @@ GINLIX_DATA_ENABLED: bool = bool(GINLIX_DATA_URL)
 # Feature Flags
 # =============================================================================
 
+
 def get_market_data_providers() -> list[dict]:
     """Return the ordered provider list from ``market_data.providers`` in config.yaml.
 
     Defaults to FMP-only when no config exists — backward compatible.
     """
-    return get_nested_config("market_data.providers", [{"name": "fmp", "markets": ["all"]}])
+    return get_nested_config(
+        "market_data.providers", [{"name": "fmp", "markets": ["all"]}]
+    )
+
+
+def get_news_data_providers() -> list[dict]:
+    """Return the ordered provider list from ``news_data.providers`` in config.yaml.
+
+    Defaults to FMP-only when no config exists.
+    """
+    return get_nested_config("news_data.providers", [{"name": "fmp"}])
 
 
 def is_result_log_db_enabled() -> bool:
     """Check if result logging to database is enabled."""
-    return bool(get_config('result_log_db_enabled', True))
+    return bool(get_config("result_log_db_enabled", True))
 
 
 def is_redis_warm_on_startup_enabled() -> bool:
     """Check if Redis cache warming on startup is enabled."""
-    return bool(get_config('redis_warm_on_startup', True))
+    return bool(get_config("redis_warm_on_startup", True))
 
 
 def is_langsmith_tracing_enabled() -> bool:
     """Check if LangSmith tracing is enabled."""
-    return bool(get_config('langsmith_tracing', False))
+    return bool(get_config("langsmith_tracing", False))
 
 
 # =============================================================================
 # SSE Event Logging
 # =============================================================================
 
+
 def is_sse_event_log_enabled() -> bool:
     """Check if SSE event logging is enabled."""
-    return bool(get_config('sse_event_log_enabled', True))
+    return bool(get_config("sse_event_log_enabled", True))
 
 
 def get_sse_event_log_level() -> str:
@@ -271,22 +280,22 @@ def get_sse_event_log_level() -> str:
     Returns:
         Log level string (debug, info, warning, error, critical)
     """
-    level = str(get_config('sse_event_log_level', 'info')).lower()
-    valid_levels = {'debug', 'info', 'warning', 'error', 'critical'}
+    level = str(get_config("sse_event_log_level", "info")).lower()
+    valid_levels = {"debug", "info", "warning", "error", "critical"}
 
     if level in valid_levels:
         return level
     else:
         logger.warning(
-            f"Invalid sse_event_log_level value: {level}. "
-            f"Using default 'info'."
+            f"Invalid sse_event_log_level value: {level}. Using default 'info'."
         )
-        return 'info'
+        return "info"
 
 
 # =============================================================================
 # General Application Logging
 # =============================================================================
+
 
 def get_log_level() -> str:
     """
@@ -295,17 +304,14 @@ def get_log_level() -> str:
     Returns:
         Log level string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
-    level = str(get_config('log_level', 'INFO')).upper()
-    valid_levels = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
+    level = str(get_config("log_level", "INFO")).upper()
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
     if level in valid_levels:
         return level
     else:
-        logger.warning(
-            f"Invalid log_level value: {level}. "
-            f"Using default 'INFO'."
-        )
-        return 'INFO'
+        logger.warning(f"Invalid log_level value: {level}. Using default 'INFO'.")
+        return "INFO"
 
 
 def get_log_format() -> str:
@@ -315,10 +321,9 @@ def get_log_format() -> str:
     Returns:
         Log format string
     """
-    return str(get_config(
-        'log_format',
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    ))
+    return str(
+        get_config("log_format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
 
 
 def get_module_log_levels() -> dict:
@@ -328,7 +333,7 @@ def get_module_log_levels() -> dict:
     Returns:
         Dictionary mapping module names to log levels
     """
-    module_levels = get_config('module_log_levels', {})
+    module_levels = get_config("module_log_levels", {})
     if isinstance(module_levels, dict):
         # Convert all values to uppercase for consistency
         return {k: v.upper() for k, v in module_levels.items()}
@@ -339,6 +344,7 @@ def get_module_log_levels() -> dict:
 # CORS Settings
 # =============================================================================
 
+
 def get_allowed_origins() -> List[str]:
     """
     Get allowed CORS origins from config.yaml.
@@ -346,23 +352,23 @@ def get_allowed_origins() -> List[str]:
     Returns:
         List of allowed origin URLs
     """
-    origins = get_config('allowed_origins', [])
+    origins = get_config("allowed_origins", [])
     if isinstance(origins, list):
         return origins
     elif isinstance(origins, str):
         # Handle comma-separated string format
-        return [origin.strip() for origin in origins.split(',')]
+        return [origin.strip() for origin in origins.split(",")]
     else:
         logger.warning(
-            f"Invalid allowed_origins type: {type(origins)}. "
-            f"Using default localhost."
+            f"Invalid allowed_origins type: {type(origins)}. Using default localhost."
         )
-        return ['http://localhost:3000']
+        return ["http://localhost:3000"]
 
 
 # =============================================================================
 # Locale and Timezone Configuration
 # =============================================================================
+
 
 def get_locale_config(locale: str, prompt_language: str) -> Dict[str, str]:
     """
@@ -423,6 +429,7 @@ def get_locale_config(locale: str, prompt_language: str) -> Dict[str, str]:
 # Service Configuration
 # =============================================================================
 
+
 def get_search_api() -> str:
     """
     Get configured search API from agent_config.yaml.
@@ -431,47 +438,47 @@ def get_search_api() -> str:
         Search API name (tavily, duckduckgo, brave_search, arxiv, bocha)
     """
     agent_config = load_agent_config()
-    return str(agent_config.get('search_api', 'tavily'))
-
+    return str(agent_config.get("search_api", "tavily"))
 
 
 # =============================================================================
 # Redis Configuration
 # =============================================================================
 
+
 def is_redis_cache_enabled() -> bool:
     """Check if Redis caching is enabled."""
-    return bool(get_nested_config('redis.cache_enabled', True))
+    return bool(get_nested_config("redis.cache_enabled", True))
 
 
 def get_redis_max_connections(default: int = 10) -> int:
     """Get Redis connection pool max connections."""
-    return int(get_nested_config('redis.max_connections', default))
+    return int(get_nested_config("redis.max_connections", default))
 
 
 def get_redis_ttl_results_list(default: int = 300) -> int:
     """Get Redis TTL for results list (seconds)."""
-    return int(get_nested_config('redis.ttl.results_list', default))
+    return int(get_nested_config("redis.ttl.results_list", default))
 
 
 def get_redis_ttl_result_detail(default: int = 900) -> int:
     """Get Redis TTL for result detail (seconds)."""
-    return int(get_nested_config('redis.ttl.result_detail', default))
+    return int(get_nested_config("redis.ttl.result_detail", default))
 
 
 def get_redis_ttl_metadata(default: int = 900) -> int:
     """Get Redis TTL for metadata (seconds)."""
-    return int(get_nested_config('redis.ttl.metadata', default))
+    return int(get_nested_config("redis.ttl.metadata", default))
 
 
 def get_redis_ttl_metadata_summary(default: int = 600) -> int:
     """Get Redis TTL for metadata summary (seconds)."""
-    return int(get_nested_config('redis.ttl.metadata_summary', default))
+    return int(get_nested_config("redis.ttl.metadata_summary", default))
 
 
 def is_cache_invalidate_on_write_enabled() -> bool:
     """Check if cache invalidation on write is enabled."""
-    return bool(get_nested_config('redis.cache_invalidate_on_write', True))
+    return bool(get_nested_config("redis.cache_invalidate_on_write", True))
 
 
 # Fallback TTLs matching config.yaml defaults (interval_seconds × 1.5)
@@ -497,15 +504,15 @@ def get_ohlcv_ttl(interval: str) -> int:
     return int(get_nested_config(f"redis.ttl.ohlcv.{interval}", fallback))
 
 
-
 # =============================================================================
 # Summarization Middleware Configuration (from agent_config.yaml)
 # =============================================================================
 
+
 def _get_agent_nested_config(key_path: str, default: Any = None) -> Any:
     """Get nested config from agent_config.yaml."""
     agent_config = load_agent_config()
-    keys = key_path.split('.')
+    keys = key_path.split(".")
     value = agent_config
     for key in keys:
         if isinstance(value, dict) and key in value:
@@ -530,21 +537,27 @@ def get_summarization_config() -> Dict[str, Any]:
         - truncate_args_max_length: Per-arg-value max chars before truncation
     """
     result: Dict[str, Any] = {
-        "enabled": bool(_get_agent_nested_config('summarization.enabled', True)),
-        "llm": str(_get_agent_nested_config('summarization.llm', 'gpt-5-nano')),
-        "token_threshold": int(_get_agent_nested_config('summarization.token_threshold', 120000)),
-        "keep_messages": int(_get_agent_nested_config('summarization.keep_messages', 5)),
+        "enabled": bool(_get_agent_nested_config("summarization.enabled", True)),
+        "llm": str(_get_agent_nested_config("summarization.llm", "gpt-5-nano")),
+        "token_threshold": int(
+            _get_agent_nested_config("summarization.token_threshold", 120000)
+        ),
+        "keep_messages": int(
+            _get_agent_nested_config("summarization.keep_messages", 5)
+        ),
     }
 
     # Truncation config (None means disabled)
-    truncate_trigger = _get_agent_nested_config('summarization.truncate_args_trigger_messages')
+    truncate_trigger = _get_agent_nested_config(
+        "summarization.truncate_args_trigger_messages"
+    )
     if truncate_trigger is not None:
         result["truncate_args_trigger_messages"] = int(truncate_trigger)
         result["truncate_args_keep_messages"] = int(
-            _get_agent_nested_config('summarization.truncate_args_keep_messages', 20)
+            _get_agent_nested_config("summarization.truncate_args_keep_messages", 20)
         )
         result["truncate_args_max_length"] = int(
-            _get_agent_nested_config('summarization.truncate_args_max_length', 2000)
+            _get_agent_nested_config("summarization.truncate_args_max_length", 2000)
         )
 
     return result
@@ -552,56 +565,65 @@ def get_summarization_config() -> Dict[str, Any]:
 
 def is_summarization_enabled() -> bool:
     """Check if conversation summarization middleware is enabled."""
-    return bool(_get_agent_nested_config('summarization.enabled', True))
+    return bool(_get_agent_nested_config("summarization.enabled", True))
 
 
 def get_summarization_token_threshold(default: int = 120000) -> int:
     """Get token threshold for triggering summarization."""
-    return int(_get_agent_nested_config('summarization.token_threshold', default))
+    return int(_get_agent_nested_config("summarization.token_threshold", default))
 
 
 def get_summarization_keep_messages(default: int = 5) -> int:
     """Get number of recent messages to preserve after summarization."""
-    return int(_get_agent_nested_config('summarization.keep_messages', default))
+    return int(_get_agent_nested_config("summarization.keep_messages", default))
 
 
 # =============================================================================
 # Background Execution Configuration
 # =============================================================================
 
+
 def is_background_execution_enabled() -> bool:
     """Check if background execution is enabled."""
-    return bool(get_config('background_execution_enabled', True))
+    return bool(get_config("background_execution_enabled", True))
 
 
 def get_max_concurrent_workflows(default: int = 100) -> int:
     """Get maximum number of concurrent background workflows."""
-    return int(get_nested_config('background_execution.max_concurrent_workflows', default))
+    return int(
+        get_nested_config("background_execution.max_concurrent_workflows", default)
+    )
 
 
 def get_workflow_result_ttl(default: int = 86400) -> int:
     """Get workflow result TTL in seconds (default: 24 hours)."""
-    return int(get_nested_config('background_execution.workflow_result_ttl', default))
+    return int(get_nested_config("background_execution.workflow_result_ttl", default))
 
 
 def get_abandoned_workflow_timeout(default: int = 3600) -> int:
     """Get abandoned workflow timeout in seconds (default: 1 hour)."""
-    return int(get_nested_config('background_execution.abandoned_workflow_timeout', default))
+    return int(
+        get_nested_config("background_execution.abandoned_workflow_timeout", default)
+    )
 
 
 def get_cleanup_interval(default: int = 300) -> int:
     """Get background cleanup interval in seconds (default: 5 minutes)."""
-    return int(get_nested_config('background_execution.cleanup_interval', default))
+    return int(get_nested_config("background_execution.cleanup_interval", default))
 
 
 def is_intermediate_storage_enabled() -> bool:
     """Check if intermediate result storage is enabled."""
-    return bool(get_nested_config('background_execution.enable_intermediate_storage', True))
+    return bool(
+        get_nested_config("background_execution.enable_intermediate_storage", True)
+    )
 
 
 def get_max_stored_messages_per_agent(default: int = 100) -> int:
     """Get maximum stored messages per agent."""
-    return int(get_nested_config('background_execution.max_stored_messages_per_agent', default))
+    return int(
+        get_nested_config("background_execution.max_stored_messages_per_agent", default)
+    )
 
 
 def get_event_storage_backend(default: str = "redis") -> str:
@@ -614,7 +636,9 @@ def get_event_storage_backend(default: str = "redis") -> str:
     Returns:
         Event storage backend: "redis" or "memory"
     """
-    backend = str(get_nested_config('background_execution.event_storage_backend', default))
+    backend = str(
+        get_nested_config("background_execution.event_storage_backend", default)
+    )
     if backend not in ["redis", "memory"]:
         logger.warning(f"Invalid event_storage_backend: {backend}, using {default}")
         return default
@@ -623,7 +647,9 @@ def get_event_storage_backend(default: str = "redis") -> str:
 
 def is_event_storage_fallback_enabled() -> bool:
     """Check if fallback to memory storage is enabled on Redis failure."""
-    return bool(get_nested_config('background_execution.event_storage_fallback_to_memory', True))
+    return bool(
+        get_nested_config("background_execution.event_storage_fallback_to_memory", True)
+    )
 
 
 def get_redis_ttl_workflow_events(default: int = 86400) -> int:
@@ -636,12 +662,13 @@ def get_redis_ttl_workflow_events(default: int = 86400) -> int:
     Returns:
         TTL in seconds
     """
-    return int(get_nested_config('redis.ttl.workflow_events', default))
+    return int(get_nested_config("redis.ttl.workflow_events", default))
 
 
 # =============================================================================
 # LangSmith Tracing Configuration
 # =============================================================================
+
 
 def get_langsmith_tags(
     msg_type: str,

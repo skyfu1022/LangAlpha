@@ -101,5 +101,42 @@ class GinlixDataClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_news(
+        self,
+        ticker: str | None = None,
+        limit: int = 20,
+        published_after: str | None = None,
+        published_before: str | None = None,
+        cursor: str | None = None,
+        order: str | None = None,
+        sort: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch news articles.
+
+        ``GET /api/v1/data/news``
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if ticker:
+            params["ticker"] = ticker
+        if published_after:
+            params["published_utc.gte"] = published_after
+        if published_before:
+            params["published_utc.lte"] = published_before
+        if cursor:
+            params["cursor"] = cursor
+        if order:
+            params["order"] = order
+        if sort:
+            params["sort"] = sort
+
+        resp = await self.http.get(
+            "/api/v1/data/news",
+            params=params,
+            headers=self._user_headers(user_id),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def close(self) -> None:
         await self.http.aclose()

@@ -23,7 +23,7 @@ import importlib
 from typing import Any
 
 from .fmp import FMPClient
-from .base import MarketDataSource, PriceDataProvider  # noqa: F401 — re-export alias
+from .base import MarketDataSource, NewsDataSource, PriceDataProvider  # noqa: F401 — re-export alias
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ MCP_SERVER_NAME = "price_data"
 
 def _ginlix_data_available() -> bool:
     from src.config.settings import GINLIX_DATA_URL
+
     return bool(GINLIX_DATA_URL)
 
 
@@ -46,12 +47,14 @@ def _fmp_available() -> bool:
 async def _build_ginlix_data_source() -> MarketDataSource:
     from .ginlix_data import get_ginlix_data_client
     from .ginlix_data.data_source import GinlixDataSource
+
     client = await get_ginlix_data_client()
     return GinlixDataSource(client)
 
 
 async def _build_fmp_source() -> MarketDataSource:
     from .fmp.data_source import FMPDataSource
+
     return FMPDataSource()
 
 
@@ -97,12 +100,16 @@ async def get_market_data_provider() -> MarketDataSource:
             if reg and reg[0]():  # availability check
                 source = await reg[1]()
                 entries.append(ProviderEntry(name=name, source=source, markets=markets))
-                logger.info("market_data.source.registered | name=%s markets=%s", name, markets)
+                logger.info(
+                    "market_data.source.registered | name=%s markets=%s", name, markets
+                )
             else:
                 logger.info("market_data.source.skipped | name=%s (unavailable)", name)
 
         if not entries:
-            raise RuntimeError("No market data source available — check config and credentials")
+            raise RuntimeError(
+                "No market data source available — check config and credentials"
+            )
 
         _market_data_provider = MarketDataProvider(entries)
 
@@ -111,6 +118,70 @@ async def get_market_data_provider() -> MarketDataSource:
 
 # Backward-compatible alias
 get_price_provider = get_market_data_provider
+
+# ---------------------------------------------------------------------------
+# News data provider factory
+# ---------------------------------------------------------------------------
+
+async def _build_ginlix_data_news_source() -> NewsDataSource:
+    from .ginlix_data import get_ginlix_data_client
+    from .ginlix_data.news_source import GinlixDataNewsSource
+
+    client = await get_ginlix_data_client()
+    return GinlixDataNewsSource(client)
+
+
+async def _build_fmp_news_source() -> NewsDataSource:
+    from .fmp.news_source import FMPNewsSource
+
+    return FMPNewsSource()
+
+
+_NEWS_SOURCE_REGISTRY = {
+    "ginlix-data": (_ginlix_data_available, _build_ginlix_data_news_source),
+    "fmp": (_fmp_available, _build_fmp_news_source),
+}
+
+_news_data_provider = None
+_news_data_provider_lock = asyncio.Lock()
+
+
+async def get_news_data_provider():
+    """Return the active :class:`NewsDataProvider` singleton.
+
+    Builds an ordered chain from ``news_data.providers`` in config.yaml.
+    """
+    global _news_data_provider
+    if _news_data_provider is not None:
+        return _news_data_provider
+
+    async with _news_data_provider_lock:
+        if _news_data_provider is not None:
+            return _news_data_provider
+
+        from src.config.settings import get_news_data_providers
+        from .news_data_provider import NewsDataProvider
+
+        provider_configs = get_news_data_providers()
+        sources: list[tuple[str, Any]] = []
+
+        for cfg in provider_configs:
+            name = cfg["name"]
+            reg = _NEWS_SOURCE_REGISTRY.get(name)
+            if reg and reg[0]():  # availability check
+                source = await reg[1]()
+                sources.append((name, source))
+                logger.info("news_data.source.registered | name=%s", name)
+            else:
+                logger.info("news_data.source.skipped | name=%s (unavailable)", name)
+
+        if not sources:
+            raise RuntimeError(
+                "No news data source available — check config and credentials"
+            )
+
+        _news_data_provider = NewsDataProvider(sources)
+        return _news_data_provider
 
 
 class FinancialDataBackendError(RuntimeError):
@@ -151,9 +222,13 @@ async def _direct_get_stock_data(
 
     async with FMPClient() as client:
         if interval_lower in {"1day", "daily", "1d", "day"}:
-            rows = await client.get_stock_price(symbol, from_date=start_date, to_date=end_date)
+            rows = await client.get_stock_price(
+                symbol, from_date=start_date, to_date=end_date
+            )
         else:
-            rows = await client.get_intraday_chart(symbol, interval_lower, from_date=start_date, to_date=end_date)
+            rows = await client.get_intraday_chart(
+                symbol, interval_lower, from_date=start_date, to_date=end_date
+            )
 
     return rows or []
 
@@ -222,7 +297,9 @@ async def _direct_get_asset_data(
     interval_lower = interval.lower()
 
     if at not in {"stock", "commodity", "crypto", "forex"}:
-        raise ValueError("Invalid asset_type. Must be one of: stock, commodity, crypto, forex")
+        raise ValueError(
+            "Invalid asset_type. Must be one of: stock, commodity, crypto, forex"
+        )
 
     # Default date window for intraday queries (FMP requires dates)
     if interval_lower not in {"1day", "daily", "1d", "day"}:
@@ -234,30 +311,46 @@ async def _direct_get_asset_data(
     async with FMPClient() as client:
         if at == "stock":
             if interval_lower in {"1day", "daily", "1d", "day"}:
-                rows = await client.get_stock_price(symbol, from_date=from_date, to_date=to_date)
+                rows = await client.get_stock_price(
+                    symbol, from_date=from_date, to_date=to_date
+                )
             else:
-                rows = await client.get_intraday_chart(symbol, interval_lower, from_date=from_date, to_date=to_date)
+                rows = await client.get_intraday_chart(
+                    symbol, interval_lower, from_date=from_date, to_date=to_date
+                )
             return rows or []
 
         # commodity/crypto/forex
         if interval_lower in {"1day", "daily", "1d", "day"}:
             if at == "commodity":
-                rows = await client.get_commodity_price(symbol, from_date=from_date, to_date=to_date)
+                rows = await client.get_commodity_price(
+                    symbol, from_date=from_date, to_date=to_date
+                )
             elif at == "crypto":
-                rows = await client.get_crypto_price(symbol, from_date=from_date, to_date=to_date)
+                rows = await client.get_crypto_price(
+                    symbol, from_date=from_date, to_date=to_date
+                )
             else:
-                rows = await client.get_forex_price(symbol, from_date=from_date, to_date=to_date)
+                rows = await client.get_forex_price(
+                    symbol, from_date=from_date, to_date=to_date
+                )
             return rows or []
 
         if interval_lower not in {"1min", "5min", "1hour"}:
             raise ValueError("Unsupported interval for commodity/crypto/forex")
 
         if at == "commodity":
-            rows = await client.get_commodity_intraday_chart(symbol, interval_lower, from_date=from_date, to_date=to_date)
+            rows = await client.get_commodity_intraday_chart(
+                symbol, interval_lower, from_date=from_date, to_date=to_date
+            )
         elif at == "crypto":
-            rows = await client.get_crypto_intraday_chart(symbol, interval_lower, from_date=from_date, to_date=to_date)
+            rows = await client.get_crypto_intraday_chart(
+                symbol, interval_lower, from_date=from_date, to_date=to_date
+            )
         else:
-            rows = await client.get_forex_intraday_chart(symbol, interval_lower, from_date=from_date, to_date=to_date)
+            rows = await client.get_forex_intraday_chart(
+                symbol, interval_lower, from_date=from_date, to_date=to_date
+            )
 
     return rows or []
 
@@ -285,5 +378,7 @@ async def get_asset_data(
         )
         return FinancialDataResult(data=data, source="mcp")
 
-    data = await _direct_get_asset_data(symbol, asset_type, interval, from_date, to_date)
+    data = await _direct_get_asset_data(
+        symbol, asset_type, interval, from_date, to_date
+    )
     return FinancialDataResult(data=data, source="direct")

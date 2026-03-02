@@ -391,6 +391,7 @@ from src.server.app.users import router as users_router
 from src.server.app.watchlist import router as watchlist_router
 from src.server.app.portfolio import router as portfolio_router
 from src.server.app.infoflow import router as infoflow_router
+from src.server.app.news import router as news_router
 from src.server.app.sec_proxy import router as sec_proxy_router
 from src.server.app.api_keys import router as api_keys_router
 from src.server.app.automations import router as automations_router
@@ -400,8 +401,10 @@ from src.server.app.skills import router as skills_router
 
 # Conditionally import ginlix-data WS proxy (only when GINLIX_DATA_WS_URL is set)
 from src.config.settings import GINLIX_DATA_ENABLED
+
 if GINLIX_DATA_ENABLED:
     from src.server.app.market_data_ws import router as market_data_ws_router
+
     logger.info("ginlix-data WS proxy enabled")
 else:
     logger.info("ginlix-data WS proxy disabled (GINLIX_DATA_URL not set)")
@@ -425,7 +428,10 @@ app.include_router(
 app.include_router(
     portfolio_router
 )  # /api/v1/users/me/portfolio/* - Portfolio management
-app.include_router(infoflow_router)  # /api/v1/infoflow/* - InfoFlow content feed
+app.include_router(
+    infoflow_router
+)  # /api/v1/infoflow/* - InfoFlow content feed (kept for PopularCard)
+app.include_router(news_router)  # /api/v1/news - News feed (general + ticker-filtered)
 app.include_router(sec_proxy_router)  # /api/v1/sec-proxy/* - SEC EDGAR document proxy
 app.include_router(
     api_keys_router
@@ -441,4 +447,6 @@ app.include_router(skills_router)  # /api/v1/skills - Available agent skills
 app.include_router(health_router)  # /health - Health check
 
 if GINLIX_DATA_ENABLED:
-    app.include_router(market_data_ws_router)  # /ws/v1/market-data/* - Real-time WS proxy
+    app.include_router(
+        market_data_ws_router
+    )  # /ws/v1/market-data/* - Real-time WS proxy

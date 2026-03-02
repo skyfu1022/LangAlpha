@@ -121,6 +121,12 @@ market_data:
     - name: fmp
       markets: [all]         # FMP — global coverage, catch-all fallback
 
+# Ordered news provider chain — sequential fallback (no market routing).
+news_data:
+  providers:
+    - name: ginlix-data
+    - name: fmp
+
 
 # =============================================================================
 # GITHUB BOT CONFIGURATION
