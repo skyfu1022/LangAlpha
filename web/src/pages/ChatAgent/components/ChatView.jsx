@@ -301,6 +301,9 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
     handleEditMessage,
     handleRegenerate,
     handleRetry,
+    handleThumbUp,
+    handleThumbDown,
+    getFeedbackForMessage,
     getSubagentHistory,
     resolveSubagentIdToAgentId,
   } = useChatMessages(workspaceId, threadId, updateTodoListCard, updateSubagentCard, inactivateAllSubagents, completePendingTodos, handleOnboardingRelatedToolComplete, refreshFiles, agentMode, clearSubagentCards, handleWorkspaceCreated);
@@ -1119,6 +1122,12 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
                         onEditMessage={handleEditMessage}
                         onRegenerate={handleRegenerate}
                         onRetry={handleRetry}
+                        onThumbUp={handleThumbUp}
+                        onThumbDown={handleThumbDown}
+                        getFeedbackForMessage={getFeedbackForMessage}
+                        onReportWithAgent={(instruction) => {
+                          handleSendMessage(`/self-improve ${instruction}`);
+                        }}
                       />
                     </div>
                   </div>

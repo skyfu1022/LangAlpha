@@ -62,6 +62,7 @@ ALL_TABLES = [
     "conversation_usages",
     "automations",
     "automation_executions",
+    "conversation_feedback",
 ]
 
 # Tables that have an updated_at column and need the auto-update trigger
@@ -75,6 +76,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = [
     "user_portfolios",
     "conversation_threads",
     "automations",
+    "conversation_feedback",
 ]
 
 
@@ -591,6 +593,8 @@ async def setup_tables_async():
                             infrastructure_credits DECIMAL(10, 6) NOT NULL DEFAULT 0,
                             total_credits DECIMAL(10, 6) NOT NULL DEFAULT 0,
                             is_byok BOOLEAN NOT NULL DEFAULT FALSE,
+                            credit_exempt BOOLEAN NOT NULL DEFAULT FALSE,
+                            credit_exempt_reason VARCHAR(100),
                             created_at TIMESTAMPTZ DEFAULT NOW()
                         );
                     """)
@@ -609,7 +613,38 @@ async def setup_tables_async():
                     print("   conversation_usages OK")
 
                     # ===================================================
-                    # 15. automations
+                    # 15. conversation_feedback
+                    # ===================================================
+                    print("\n-- Creating 'conversation_feedback' table ...")
+                    await cur.execute("""
+                        CREATE TABLE IF NOT EXISTS conversation_feedback (
+                            conversation_feedback_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                            conversation_response_id UUID NOT NULL
+                                REFERENCES conversation_responses(conversation_response_id)
+                                ON DELETE CASCADE,
+                            user_id VARCHAR(255) NOT NULL,
+                            rating VARCHAR(20) NOT NULL
+                                CHECK (rating IN ('thumbs_up', 'thumbs_down')),
+                            issue_categories TEXT[],
+                            comment TEXT,
+                            consent_human_review BOOLEAN NOT NULL DEFAULT FALSE,
+                            review_status VARCHAR(50)
+                                CHECK (review_status IN ('pending', 'confirmed', 'rejected')),
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            CONSTRAINT unique_feedback_per_response_user
+                                UNIQUE (conversation_response_id, user_id)
+                        );
+                    """)
+                    await cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_feedback_review_status
+                        ON conversation_feedback(review_status)
+                        WHERE review_status IS NOT NULL;
+                    """)
+                    print("   conversation_feedback OK")
+
+                    # ===================================================
+                    # 16. automations
                     # ===================================================
                     print("\n-- Creating 'automations' table ...")
                     await cur.execute("""
@@ -658,7 +693,7 @@ async def setup_tables_async():
                     print("   automations OK")
 
                     # ===================================================
-                    # 16. automation_executions
+                    # 17. automation_executions
                     # ===================================================
                     print("\n-- Creating 'automation_executions' table ...")
                     await cur.execute("""

@@ -206,3 +206,26 @@ class ThreadShareResponse(BaseModel):
         default_factory=SharePermissions, description="Current share permissions"
     )
 
+
+# ==================== Feedback Models ====================
+
+class FeedbackRequest(BaseModel):
+    """Request model for submitting feedback on a response."""
+    turn_index: int = Field(..., description="Turn index of the response to rate")
+    rating: str = Field(..., pattern=r"^(thumbs_up|thumbs_down)$", description="Rating: thumbs_up or thumbs_down")
+    issue_categories: Optional[List[str]] = Field(None, description="Issue categories for thumbs_down")
+    comment: Optional[str] = Field(None, description="Optional free-text comment")
+    consent_human_review: bool = Field(False, description="Whether user consents to anonymous human review")
+
+
+class FeedbackResponse(BaseModel):
+    """Response model for feedback."""
+    conversation_feedback_id: str
+    turn_index: int
+    rating: str
+    issue_categories: Optional[List[str]] = None
+    comment: Optional[str] = None
+    consent_human_review: bool = False
+    review_status: Optional[str] = None
+    created_at: str
+

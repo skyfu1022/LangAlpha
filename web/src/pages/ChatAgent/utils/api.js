@@ -547,6 +547,33 @@ export async function getSkills(mode = null) {
 
 // --- File Upload ---
 
+// --- Feedback ---
+
+export async function submitFeedback(threadId, turnIndex, rating, issueCategories = null, comment = null, consentHumanReview = false) {
+  const { data } = await api.post(`/api/v1/threads/${threadId}/feedback`, {
+    turn_index: turnIndex,
+    rating,
+    issue_categories: issueCategories,
+    comment: comment || null,
+    consent_human_review: consentHumanReview,
+  });
+  return data;
+}
+
+export async function removeFeedback(threadId, turnIndex) {
+  const { data } = await api.delete(`/api/v1/threads/${threadId}/feedback`, {
+    params: { turn_index: turnIndex },
+  });
+  return data;
+}
+
+export async function getThreadFeedback(threadId) {
+  const { data } = await api.get(`/api/v1/threads/${threadId}/feedback`);
+  return data;
+}
+
+// --- File uploads ---
+
 export async function uploadWorkspaceFile(workspaceId, file, destPath = null, onProgress = null) {
   const formData = new FormData();
   formData.append('file', file);

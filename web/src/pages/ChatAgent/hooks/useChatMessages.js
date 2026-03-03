@@ -15,7 +15,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { sendChatMessageStream, replayThreadHistory, getWorkflowStatus, reconnectToWorkflowStream, sendHitlResponse, streamSubagentTaskEvents, fetchThreadTurns } from '../utils/api';
+import { sendChatMessageStream, replayThreadHistory, getWorkflowStatus, reconnectToWorkflowStream, sendHitlResponse, streamSubagentTaskEvents, fetchThreadTurns, submitFeedback, removeFeedback, getThreadFeedback } from '../utils/api';
 import { getStoredThreadId, setStoredThreadId } from './utils/threadStorage';
 export { removeStoredThreadId } from './utils/threadStorage';
 import { createUserMessage, createAssistantMessage, createNotificationMessage, insertMessage, appendMessage, updateMessage } from './utils/messageHelpers';
@@ -222,6 +222,9 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
 
   // Track if streaming is in progress to prevent history loading during streaming
   const isStreamingRef = useRef(false);
+
+  // Feedback state: { [turnIndex]: { rating, ... } }
+  const feedbackMapRef = useRef({});
 
   // Track if history replay found an unresolved interrupt (skip reconnection in that case)
   const historyHasUnresolvedInterruptRef = useRef(false);
@@ -1327,6 +1330,19 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
 
       setIsLoadingHistory(false);
       historyLoadingRef.current = false;
+
+      // Fetch feedback state for the thread
+      if (threadId) {
+        try {
+          const feedbackList = await getThreadFeedback(threadId);
+          const map = {};
+          feedbackList.forEach(fb => { map[fb.turn_index] = fb; });
+          feedbackMapRef.current = map;
+        } catch (e) {
+          // Non-critical — feedback display is best-effort
+          console.warn('[History] Failed to load feedback:', e);
+        }
+      }
     } catch (error) {
       console.error('[History] Error loading conversation history:', error);
       // Only show error if it's not a 404 (404 is expected for new threads)
@@ -3339,6 +3355,56 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
     await streamFromCheckpoint(null, checkpointId, truncateIndex, forkFromTurn);
   }, [messages, getTurnCheckpoints, streamFromCheckpoint]);
 
+  // ==================== Feedback ====================
+
+  const deriveTurnIndex = useCallback((messageId) => {
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return -1;
+    const userMsgsBefore = messages.slice(0, msgIndex + 1).filter(m => m.role === 'user');
+    return userMsgsBefore.length - 1;
+  }, [messages]);
+
+  const handleThumbUp = useCallback(async (messageId) => {
+    const turnIndex = deriveTurnIndex(messageId);
+    if (turnIndex === -1) return null;
+
+    const existing = feedbackMapRef.current[turnIndex];
+    try {
+      if (existing?.rating === 'thumbs_up') {
+        await removeFeedback(threadId, turnIndex);
+        delete feedbackMapRef.current[turnIndex];
+        return { rating: null };
+      } else {
+        const result = await submitFeedback(threadId, turnIndex, 'thumbs_up');
+        feedbackMapRef.current[turnIndex] = result;
+        return { rating: 'thumbs_up' };
+      }
+    } catch (e) {
+      console.error('[Feedback] Error:', e);
+      return null;
+    }
+  }, [deriveTurnIndex, threadId]);
+
+  const handleThumbDown = useCallback(async (messageId, issueCategories, comment, consentHumanReview) => {
+    const turnIndex = deriveTurnIndex(messageId);
+    if (turnIndex === -1) return null;
+
+    try {
+      const result = await submitFeedback(threadId, turnIndex, 'thumbs_down', issueCategories, comment, consentHumanReview);
+      feedbackMapRef.current[turnIndex] = result;
+      return { rating: 'thumbs_down' };
+    } catch (e) {
+      console.error('[Feedback] Error:', e);
+      return null;
+    }
+  }, [deriveTurnIndex, threadId]);
+
+  const getFeedbackForMessage = useCallback((messageId) => {
+    const turnIndex = deriveTurnIndex(messageId);
+    if (turnIndex === -1) return null;
+    return feedbackMapRef.current[turnIndex] || null;
+  }, [deriveTurnIndex]);
+
   return {
     messages,
     threadId,
@@ -3367,6 +3433,9 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
     handleEditMessage,
     handleRegenerate,
     handleRetry,
+    handleThumbUp,
+    handleThumbDown,
+    getFeedbackForMessage,
     // Resolve subagentId (e.g. toolCallId from segment) to stable agent_id for card operations.
     resolveSubagentIdToAgentId: (subagentId) =>
       toolCallIdToTaskIdMapRef.current.get(subagentId) || subagentId,

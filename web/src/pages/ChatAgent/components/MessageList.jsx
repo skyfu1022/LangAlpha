@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bot, User, FileText, ImageIcon, Pencil, RefreshCw, RotateCcw, Copy, Check, Info } from 'lucide-react';
+import { Bot, User, FileText, ImageIcon, Pencil, RefreshCw, RotateCcw, Copy, Check, Info, ThumbsUp, ThumbsDown } from 'lucide-react';
+import ThumbDownModal from './ThumbDownModal';
 import logoLight from '../../../assets/img/logo.svg';
 import logoDark from '../../../assets/img/logo-dark.svg';
 import { useTheme } from '../../../contexts/ThemeContext';
@@ -179,7 +180,7 @@ function NotificationDivider({ message, content }) {
  * - Streaming indicators
  * - Error state styling
  */
-function MessageList({ messages, isLoading, hideAvatar, compactToolCalls, isSubagentView, readOnly, allowFiles, onOpenSubagentTask, onOpenFile, onOpenDir, onToolCallDetailClick, onApprovePlan, onRejectPlan, onPlanDetailClick, onAnswerQuestion, onSkipQuestion, onApproveCreateWorkspace, onRejectCreateWorkspace, onApproveStartQuestion, onRejectStartQuestion, onEditMessage, onRegenerate, onRetry }) {
+function MessageList({ messages, isLoading, hideAvatar, compactToolCalls, isSubagentView, readOnly, allowFiles, onOpenSubagentTask, onOpenFile, onOpenDir, onToolCallDetailClick, onApprovePlan, onRejectPlan, onPlanDetailClick, onAnswerQuestion, onSkipQuestion, onApproveCreateWorkspace, onRejectCreateWorkspace, onApproveStartQuestion, onRejectStartQuestion, onEditMessage, onRegenerate, onRetry, onThumbUp, onThumbDown, getFeedbackForMessage, onReportWithAgent }) {
   // Empty state - show when no messages exist (hidden in subagent view)
   if (messages.length === 0) {
     if (isSubagentView) return null;
@@ -225,6 +226,10 @@ function MessageList({ messages, isLoading, hideAvatar, compactToolCalls, isSuba
             onEditMessage={onEditMessage}
             onRegenerate={onRegenerate}
             onRetry={onRetry}
+            onThumbUp={onThumbUp}
+            onThumbDown={onThumbDown}
+            getFeedbackForMessage={getFeedbackForMessage}
+            onReportWithAgent={onReportWithAgent}
           />
         )
       )}
@@ -238,7 +243,7 @@ function MessageList({ messages, isLoading, hideAvatar, compactToolCalls, isSuba
  * Renders a single message bubble with appropriate styling
  * based on role (user/assistant) and state (streaming/error)
  */
-function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSubagentView, readOnly, allowFiles, onOpenSubagentTask, onOpenFile, onOpenDir, onToolCallDetailClick, onApprovePlan, onRejectPlan, onPlanDetailClick, onAnswerQuestion, onSkipQuestion, onApproveCreateWorkspace, onRejectCreateWorkspace, onApproveStartQuestion, onRejectStartQuestion, onEditMessage, onRegenerate, onRetry }) {
+function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSubagentView, readOnly, allowFiles, onOpenSubagentTask, onOpenFile, onOpenDir, onToolCallDetailClick, onApprovePlan, onRejectPlan, onPlanDetailClick, onAnswerQuestion, onSkipQuestion, onApproveCreateWorkspace, onRejectCreateWorkspace, onApproveStartQuestion, onRejectStartQuestion, onEditMessage, onRegenerate, onRetry, onThumbUp, onThumbDown, getFeedbackForMessage, onReportWithAgent }) {
   const { user } = useAuth();
   const { theme } = useTheme();
   const logo = theme === 'light' ? logoDark : logoLight;
@@ -255,6 +260,37 @@ function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSub
 
   // Copy state
   const [copied, setCopied] = useState(false);
+
+  // Feedback state
+  const [feedbackRating, setFeedbackRating] = useState(null);
+  const [showThumbDownModal, setShowThumbDownModal] = useState(false);
+
+  // Load initial feedback on mount
+  useEffect(() => {
+    if (isAssistant && getFeedbackForMessage) {
+      const fb = getFeedbackForMessage(message.id);
+      if (fb) setFeedbackRating(fb.rating);
+    }
+  }, [message.id, isAssistant, getFeedbackForMessage]);
+
+  const handleThumbUpClick = async () => {
+    if (!onThumbUp) return;
+    const prevRating = feedbackRating;
+    const newRating = prevRating === 'thumbs_up' ? null : 'thumbs_up';
+    setFeedbackRating(newRating);
+    const result = await onThumbUp(message.id);
+    if (result === null) setFeedbackRating(prevRating);
+    else if (result) setFeedbackRating(result.rating);
+  };
+
+  const handleThumbDownSubmit = async (issueCategories, comment, consentHumanReview) => {
+    if (!onThumbDown) return;
+    const prevRating = feedbackRating;
+    setFeedbackRating('thumbs_down');
+    setShowThumbDownModal(false);
+    const result = await onThumbDown(message.id, issueCategories, comment, consentHumanReview);
+    if (result === null) setFeedbackRating(prevRating);
+  };
 
   // Show action buttons only when not streaming, not in subagent view, not read-only, and not loading
   const showActions = !message.isStreaming && !isSubagentView && !readOnly && !isLoading;
@@ -489,6 +525,7 @@ function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSub
               isUser ? 'justify-end' : 'justify-start'
             }`}
           >
+            {/* User message actions */}
             {isUser && onEditMessage && (
               <button
                 onClick={handleStartEdit}
@@ -498,15 +535,8 @@ function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSub
                 <Pencil className="h-3.5 w-3.5" style={{ color: 'var(--color-text-tertiary)' }} />
               </button>
             )}
-            {isAssistant && !message.error && onRegenerate && (
-              <button
-                onClick={() => onRegenerate(message.id)}
-                className="p-1 rounded transition-colors hover:bg-[var(--color-bg-elevated)]"
-                title="Regenerate response"
-              >
-                <RefreshCw className="h-3.5 w-3.5" style={{ color: 'var(--color-text-tertiary)' }} />
-              </button>
-            )}
+
+            {/* Assistant message actions: Copy → ThumbUp → ThumbDown → Regenerate/Retry */}
             {isAssistant && (
               <button
                 onClick={handleCopy}
@@ -519,6 +549,41 @@ function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSub
                 }
               </button>
             )}
+            {isAssistant && !message.error && onThumbUp && (
+              <button
+                onClick={handleThumbUpClick}
+                className="p-1 rounded transition-colors hover:bg-[var(--color-bg-elevated)]"
+                title={feedbackRating === 'thumbs_up' ? 'Remove rating' : 'Good response'}
+              >
+                <ThumbsUp
+                  className="h-3.5 w-3.5"
+                  fill={feedbackRating === 'thumbs_up' ? 'currentColor' : 'none'}
+                  style={{ color: feedbackRating === 'thumbs_up' ? 'var(--color-gain)' : 'var(--color-text-tertiary)' }}
+                />
+              </button>
+            )}
+            {isAssistant && !message.error && onThumbDown && (
+              <button
+                onClick={() => setShowThumbDownModal(true)}
+                className="p-1 rounded transition-colors hover:bg-[var(--color-bg-elevated)]"
+                title={feedbackRating === 'thumbs_down' ? 'Feedback submitted' : 'Report issue'}
+              >
+                <ThumbsDown
+                  className="h-3.5 w-3.5"
+                  fill={feedbackRating === 'thumbs_down' ? 'currentColor' : 'none'}
+                  style={{ color: feedbackRating === 'thumbs_down' ? 'var(--color-loss)' : 'var(--color-text-tertiary)' }}
+                />
+              </button>
+            )}
+            {isAssistant && !message.error && onRegenerate && (
+              <button
+                onClick={() => onRegenerate(message.id)}
+                className="p-1 rounded transition-colors hover:bg-[var(--color-bg-elevated)]"
+                title="Regenerate response"
+              >
+                <RefreshCw className="h-3.5 w-3.5" style={{ color: 'var(--color-text-tertiary)' }} />
+              </button>
+            )}
             {isAssistant && message.error && onRetry && (
               <button
                 onClick={onRetry}
@@ -529,6 +594,19 @@ function MessageBubble({ message, isLoading, hideAvatar, compactToolCalls, isSub
               </button>
             )}
           </div>
+        )}
+
+        {/* ThumbDown feedback modal */}
+        {showThumbDownModal && (
+          <ThumbDownModal
+            isOpen={showThumbDownModal}
+            onSubmit={handleThumbDownSubmit}
+            onCancel={() => setShowThumbDownModal(false)}
+            onReportWithAgent={onReportWithAgent ? (instruction) => {
+              setShowThumbDownModal(false);
+              onReportWithAgent(instruction);
+            } : null}
+          />
         )}
       </div>
 
