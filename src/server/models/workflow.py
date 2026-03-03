@@ -407,3 +407,50 @@ class CheckpointHistoryResponse(BaseModel):
                 ]
             }
         }
+
+
+class TurnCheckpointInfo(BaseModel):
+    """
+    Checkpoint IDs for a single conversation turn, enabling edit/regenerate operations.
+
+    Each turn boundary is identified by the `source=input` checkpoint that LangGraph
+    creates when a user message is injected into the graph state.
+    """
+    turn_index: int = Field(..., description="0-based turn index")
+    edit_checkpoint_id: Optional[str] = Field(
+        None,
+        description="Checkpoint ID before the user message was added. "
+        "Fork from here to edit/replace this user message.",
+    )
+    regenerate_checkpoint_id: str = Field(
+        ...,
+        description="Checkpoint ID with user message present but before AI response. "
+        "Fork from here to regenerate the AI response.",
+    )
+
+
+class ThreadTurnsResponse(BaseModel):
+    """
+    Response for thread turns endpoint.
+
+    Maps each conversation turn to checkpoint IDs that enable
+    edit (fork before user message) and regenerate (fork before AI response) operations.
+    """
+    thread_id: str = Field(..., description="Thread ID")
+    turns: List[TurnCheckpointInfo] = Field(
+        default_factory=list,
+        description="Per-turn checkpoint info, ordered by turn_index ascending",
+    )
+    retry_checkpoint_id: Optional[str] = Field(
+        None,
+        description="Most recent checkpoint ID. Use to retry a failed/interrupted thread.",
+    )
+
+
+class RetryRequest(BaseModel):
+    """Request body for the retry endpoint."""
+    workspace_id: str = Field(..., description="Workspace ID (required for graph building)")
+    checkpoint_id: Optional[str] = Field(
+        None,
+        description="Specific checkpoint ID to retry from. If not provided, auto-detects the last checkpoint.",
+    )

@@ -101,6 +101,63 @@ def _append_to_last_user_message(messages: list[dict], text: str) -> None:
         last_msg["content"].append({"type": "text", "text": text})
 
 
+async def _setup_fork_and_persistence(
+    *,
+    request: ChatRequest,
+    thread_id: str,
+    workspace_id: str,
+    user_id: str,
+    log_prefix: str = "FORK",
+) -> tuple[str, bool, ConversationPersistenceService]:
+    """Compute query_type, apply fork cleanup, and init persistence service.
+
+    Shared by both flash and PTC handlers. Returns (query_type, is_fork, persistence_service).
+    """
+    # Determine query type
+    is_resume = bool(request.hitl_response)
+    is_checkpoint_replay = bool(request.checkpoint_id and not request.messages)
+    if is_resume:
+        query_type = "resume_feedback"
+    elif is_checkpoint_replay:
+        query_type = "regenerate"
+    else:
+        query_type = "initial"
+
+    # Fork cleanup: truncate app DB when branching from a checkpoint
+    is_fork = request.fork_from_turn is not None and request.checkpoint_id
+    if is_fork:
+        deleted = await qr_db.truncate_thread_from_turn(
+            thread_id,
+            request.fork_from_turn,
+            preserve_query_at_fork=is_checkpoint_replay,
+        )
+        logger.info(
+            f"[{log_prefix}] Truncated {deleted} rows from turn_index>={request.fork_from_turn} "
+            f"thread_id={thread_id} checkpoint_id={request.checkpoint_id}"
+        )
+        # Clear Redis event buffer (stale events from old branch)
+        try:
+            manager = BackgroundTaskManager.get_instance()
+            await manager.clear_event_buffer(thread_id)
+        except Exception as e:
+            logger.warning(f"[{log_prefix}] Failed to clear event buffer: {e}")
+        # Update branch tip to fork checkpoint
+        await qr_db.update_thread_checkpoint_id(thread_id, request.checkpoint_id)
+
+    # Initialize persistence service
+    persistence_service = ConversationPersistenceService.get_instance(
+        thread_id=thread_id, workspace_id=workspace_id, user_id=user_id
+    )
+
+    # Reset persistence cache if forking, otherwise calculate from DB
+    if is_fork:
+        persistence_service.reset_for_fork(request.fork_from_turn)
+    else:
+        await persistence_service.get_or_calculate_turn_index()
+
+    return query_type, is_fork, persistence_service
+
+
 async def queue_message_for_thread(
     thread_id: str, content: str, user_id: str
 ) -> dict | None:
@@ -426,10 +483,14 @@ async def astream_flash_workflow(
             ensure_kwargs["platform"] = request.platform
         await qr_db.ensure_thread_exists(**ensure_kwargs)
 
-        # Initialize persistence service
-        persistence_service = ConversationPersistenceService.get_instance(
-            thread_id=thread_id, workspace_id=workspace_id, user_id=user_id
+        query_type, is_fork, persistence_service = await _setup_fork_and_persistence(
+            request=request,
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            log_prefix="FLASH_FORK",
         )
+        is_checkpoint_replay = bool(request.checkpoint_id and not request.messages)
 
         # Persist query start (with attachment and context metadata for display in history)
         query_metadata = {"msg_type": "flash"}
@@ -469,11 +530,25 @@ async def astream_flash_workflow(
                     {"type": "skills", "name": s.name} for s in early_detected
                 ]
 
-        await persistence_service.persist_query_start(
-            content=user_input,
-            query_type="initial",
-            metadata=query_metadata,
-        )
+        # Skip query persistence for checkpoint replay (regenerate/retry) —
+        # the original user message is preserved (or no new message exists)
+        if is_checkpoint_replay:
+            turn_to_mark = (
+                request.fork_from_turn
+                if request.fork_from_turn is not None
+                else await persistence_service.get_or_calculate_turn_index()
+            )
+            persistence_service.mark_query_persisted(turn_to_mark)
+            logger.info(
+                f"[FLASH_CHAT] Skipped query persist (checkpoint replay): "
+                f"thread_id={thread_id} turn_index={turn_to_mark}"
+            )
+        else:
+            await persistence_service.persist_query_start(
+                content=user_input,
+                query_type=query_type,
+                metadata=query_metadata,
+            )
 
         logger.info(
             f"[FLASH_CHAT] Database records created: workspace_id={workspace_id}"
@@ -589,6 +664,12 @@ async def astream_flash_workflow(
                 f"[FLASH_RESUME] thread_id={thread_id} "
                 f"hitl_response keys={list(request.hitl_response.keys())}"
             )
+        elif is_checkpoint_replay:
+            input_state = None
+            logger.info(
+                f"[FLASH_REPLAY] thread_id={thread_id} "
+                f"checkpoint_id={request.checkpoint_id} (regenerate/retry)"
+            )
         else:
             input_state = {"messages": messages}
             if loaded_skill_names:
@@ -608,6 +689,9 @@ async def astream_flash_workflow(
                 "workflow_type": "flash_agent",
             },
         }
+
+        if request.checkpoint_id:
+            graph_config["configurable"]["checkpoint_id"] = request.checkpoint_id
 
         # Add token tracking callbacks
         if token_callback:
@@ -975,10 +1059,6 @@ async def astream_ptc_workflow(
         # Phase 1: Database Persistence Setup
         # =====================================================================
 
-        # Determine query type based on whether this is an interrupt resume
-        is_resume = bool(request.hitl_response)
-        query_type = "resume_feedback" if is_resume else "initial"
-
         # Ensure thread exists in database (linked to workspace)
         ensure_kwargs = dict(
             workspace_id=workspace_id,
@@ -993,13 +1073,14 @@ async def astream_ptc_workflow(
             ensure_kwargs["platform"] = request.platform
         await qr_db.ensure_thread_exists(**ensure_kwargs)
 
-        # Initialize persistence service for this thread
-        persistence_service = ConversationPersistenceService.get_instance(
-            thread_id=thread_id, workspace_id=workspace_id, user_id=user_id
+        query_type, is_fork, persistence_service = await _setup_fork_and_persistence(
+            request=request,
+            thread_id=thread_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            log_prefix="PTC_FORK",
         )
-
-        # Get current turn_index for this thread (will be used by file logger)
-        current_turn_index = await persistence_service.get_or_calculate_turn_index()
+        is_checkpoint_replay = bool(request.checkpoint_id and not request.messages)
 
         # Persist query start
         feedback_action = None
@@ -1079,17 +1160,32 @@ async def astream_ptc_workflow(
                     "QUESTION_ANSWERED" if has_answers else "QUESTION_SKIPPED"
                 )
 
-        await persistence_service.persist_query_start(
-            content=query_content,
-            query_type=query_type,
-            feedback_action=feedback_action,
-            metadata=query_metadata,
-        )
-
-        logger.info(
-            f"[PTC_CHAT] Database records created: workspace_id={workspace_id} "
-            f"thread_id={thread_id} query_type={query_type}"
-        )
+        # Skip query persistence for checkpoint replay (regenerate/retry) —
+        # the original user message is preserved (or no new message exists)
+        if is_checkpoint_replay:
+            # Mark the preserved query's turn as already persisted so
+            # persist_completion doesn't skip due to missing query tracking
+            turn_to_mark = (
+                request.fork_from_turn
+                if request.fork_from_turn is not None
+                else await persistence_service.get_or_calculate_turn_index()
+            )
+            persistence_service.mark_query_persisted(turn_to_mark)
+            logger.info(
+                f"[PTC_CHAT] Skipped query persist (checkpoint replay): "
+                f"thread_id={thread_id} turn_index={turn_to_mark}"
+            )
+        else:
+            await persistence_service.persist_query_start(
+                content=query_content,
+                query_type=query_type,
+                feedback_action=feedback_action,
+                metadata=query_metadata,
+            )
+            logger.info(
+                f"[PTC_CHAT] Database records created: workspace_id={workspace_id} "
+                f"thread_id={thread_id} query_type={query_type}"
+            )
 
         # =====================================================================
         # Timezone and Locale Validation
@@ -1282,6 +1378,14 @@ async def astream_ptc_workflow(
             logger.info(
                 f"[PTC_RESUME] thread_id={thread_id} "
                 f"hitl_response keys={list(request.hitl_response.keys())}"
+            )
+        elif is_checkpoint_replay:
+            # Checkpoint replay/regenerate: no new messages, resume from checkpoint_id.
+            # LangGraph will re-execute from the specified checkpoint state.
+            input_state = None
+            logger.info(
+                f"[PTC_REPLAY] thread_id={thread_id} "
+                f"checkpoint_id={request.checkpoint_id} (regenerate/retry)"
             )
         else:
             input_state = {

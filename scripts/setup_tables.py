@@ -21,7 +21,7 @@ Tables created (in order):
  8. conversation_threads - Chat threads (FK -> workspaces)
  9. conversation_queries - User messages (FK -> conversation_threads)
 10. conversation_responses - Agent responses (FK -> conversation_threads)
-11. conversation_usages  - Token/credit tracking (FK -> conversation_responses, threads, workspaces)
+11. conversation_usages  - Token/credit tracking (append-only audit ledger, no FKs)
 
 Usage:
     uv run python scripts/setup_tables.py
@@ -458,6 +458,7 @@ async def setup_tables_async():
                             is_shared BOOLEAN NOT NULL DEFAULT FALSE,
                             share_permissions JSONB NOT NULL DEFAULT '{}',
                             shared_at TIMESTAMPTZ,
+                            latest_checkpoint_id TEXT,
                             created_at TIMESTAMPTZ DEFAULT NOW(),
                             updated_at TIMESTAMPTZ DEFAULT NOW(),
                             CONSTRAINT unique_thread_index_per_workspace
@@ -481,6 +482,11 @@ async def setup_tables_async():
                         ON conversation_threads (platform, external_id)
                         WHERE external_id IS NOT NULL;
                     """)
+                    # Migration: add latest_checkpoint_id for existing tables
+                    await cur.execute("""
+                        ALTER TABLE conversation_threads
+                            ADD COLUMN IF NOT EXISTS latest_checkpoint_id TEXT;
+                    """)
                     print("   conversation_threads OK")
 
                     # ===================================================
@@ -497,7 +503,7 @@ async def setup_tables_async():
                             content TEXT,
                             type VARCHAR(50) NOT NULL
                                 CHECK (type IN (
-                                    'initial','follow_up','resume_feedback'
+                                    'initial','follow_up','resume_feedback','regenerate'
                                 )),
                             feedback_action TEXT,
                             metadata JSONB DEFAULT '{}'::jsonb,
@@ -567,16 +573,10 @@ async def setup_tables_async():
                     await cur.execute("""
                         CREATE TABLE IF NOT EXISTS conversation_usages (
                             conversation_usage_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                            conversation_response_id UUID NOT NULL
-                                REFERENCES conversation_responses(conversation_response_id)
-                                ON DELETE CASCADE,
+                            conversation_response_id UUID NOT NULL,
                             user_id VARCHAR(255) NOT NULL,
-                            conversation_thread_id UUID NOT NULL
-                                REFERENCES conversation_threads(conversation_thread_id)
-                                ON DELETE CASCADE,
-                            workspace_id UUID NOT NULL
-                                REFERENCES workspaces(workspace_id)
-                                ON DELETE CASCADE,
+                            conversation_thread_id UUID NOT NULL,
+                            workspace_id UUID NOT NULL,
                             msg_type VARCHAR(50) NOT NULL DEFAULT 'ptc'
                                 CHECK (msg_type IN (
                                     'flash','ptc','interrupted','task'

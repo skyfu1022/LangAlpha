@@ -106,24 +106,42 @@ class ConversationPersistenceService:
 
         return instance
 
+    def _clear_tracking_state(self):
+        """Clear all per-turn tracking sets and cached IDs."""
+        self._persisted_queries.clear()
+        self._persisted_interrupts.clear()
+        self._persisted_completions.clear()
+        self._current_query_id = None
+        self._current_response_id = None
+
     async def cleanup(self):
         """Clean up service state and remove from instance cache."""
         logger.info(f"[ConversationPersistence] Cleaning up service for thread_id={self.thread_id}")
 
-        # Clear tracking sets
-        self._persisted_queries.clear()
-        self._persisted_interrupts.clear()
-        self._persisted_completions.clear()
-
-        # Clear cached state
+        self._clear_tracking_state()
         self._turn_index_cache = None
-        self._current_query_id = None
-        self._current_response_id = None
 
         # Remove from instance cache
         if self.thread_id in _service_instances:
             del _service_instances[self.thread_id]
             logger.debug(f"[ConversationPersistence] Removed service from cache for thread_id={self.thread_id}")
+
+    def mark_query_persisted(self, turn_index: int):
+        """Mark a turn's query as already persisted (e.g., preserved during fork)."""
+        self._persisted_queries.add(turn_index)
+
+    def reset_for_fork(self, fork_turn_index: int):
+        """Reset persistence state for a fork/branch operation.
+
+        Sets turn_index to the fork point and clears tracking so the normal
+        flow persists fresh records for the new branch.
+        """
+        self._clear_tracking_state()
+        self._turn_index_cache = fork_turn_index
+        logger.info(
+            f"[ConversationPersistence] Reset for fork at turn_index={fork_turn_index} "
+            f"thread_id={self.thread_id}"
+        )
 
     async def get_or_calculate_turn_index(self, conn=None) -> int:
         """
@@ -159,6 +177,33 @@ class ConversationPersistenceService:
                     f"[ConversationPersistence] _on_pair_persisted callback failed "
                     f"for thread_id={self.thread_id}: {e}"
                 )
+
+    async def _get_latest_checkpoint_id(self) -> str | None:
+        """Best-effort: get latest checkpoint_id from the checkpointer.
+
+        Called before terminal persist transactions so the ID can be passed
+        to update_thread_status in the same UPDATE.
+        Returns None silently if checkpointer is unavailable.
+        """
+        try:
+            from src.server.app import setup
+
+            if not setup.checkpointer:
+                return None
+
+            cp_tuple = await setup.checkpointer.aget_tuple(
+                {"configurable": {"thread_id": self.thread_id}}
+            )
+            if not cp_tuple:
+                return None
+
+            return cp_tuple.config["configurable"]["checkpoint_id"]
+        except Exception as e:
+            logger.warning(
+                f"[ConversationPersistence] Failed to get checkpoint_id "
+                f"for thread_id={self.thread_id}: {e}"
+            )
+            return None
 
     async def persist_query_start(
         self,
@@ -264,11 +309,15 @@ class ConversationPersistenceService:
 
         try:
             response_id = str(uuid4())
+            _checkpoint_id = await self._get_latest_checkpoint_id()
 
             # Stage-level transaction: group update + create + usage tracking
             async with qr_db.get_db_connection() as conn:
                 async with conn.transaction():
-                    await qr_db.update_thread_status(self.thread_id, "interrupted", conn=conn)
+                    await qr_db.update_thread_status(
+                        self.thread_id, "interrupted",
+                        checkpoint_id=_checkpoint_id, conn=conn,
+                    )
 
                     await qr_db.create_response(
                         conversation_response_id=response_id,
@@ -453,11 +502,15 @@ class ConversationPersistenceService:
 
         try:
             response_id = str(uuid4())
+            _checkpoint_id = await self._get_latest_checkpoint_id()
 
             # Stage-level transaction: group update + create + usage tracking
             async with qr_db.get_db_connection() as conn:
                 async with conn.transaction():
-                    await qr_db.update_thread_status(self.thread_id, "completed", conn=conn)
+                    await qr_db.update_thread_status(
+                        self.thread_id, "completed",
+                        checkpoint_id=_checkpoint_id, conn=conn,
+                    )
 
                     await qr_db.create_response(
                         conversation_response_id=response_id,
@@ -566,6 +619,7 @@ class ConversationPersistenceService:
         try:
             response_id = str(uuid4())
             turn_index = await self.get_or_calculate_turn_index()
+            _checkpoint_id = await self._get_latest_checkpoint_id()
 
             if errors is None:
                 errors = [error_message]
@@ -573,7 +627,10 @@ class ConversationPersistenceService:
             # Stage-level transaction: group update + create + usage tracking
             async with qr_db.get_db_connection() as conn:
                 async with conn.transaction():
-                    await qr_db.update_thread_status(self.thread_id, "error", conn=conn)
+                    await qr_db.update_thread_status(
+                        self.thread_id, "error",
+                        checkpoint_id=_checkpoint_id, conn=conn,
+                    )
 
                     await qr_db.create_response(
                         conversation_response_id=response_id,
@@ -693,11 +750,15 @@ class ConversationPersistenceService:
         try:
             response_id = str(uuid4())
             turn_index = await self.get_or_calculate_turn_index()
+            _checkpoint_id = await self._get_latest_checkpoint_id()
 
             # Stage-level transaction: group update + create + usage tracking
             async with qr_db.get_db_connection() as conn:
                 async with conn.transaction():
-                    await qr_db.update_thread_status(self.thread_id, "cancelled", conn=conn)
+                    await qr_db.update_thread_status(
+                        self.thread_id, "cancelled",
+                        checkpoint_id=_checkpoint_id, conn=conn,
+                    )
 
                     await qr_db.create_response(
                         conversation_response_id=response_id,

@@ -344,38 +344,94 @@ async def lookup_thread_by_external_id(
         return None
 
 
-async def update_thread_status(conversation_thread_id: str, status: str, conn=None) -> bool:
+async def update_thread_status(
+    conversation_thread_id: str,
+    status: str,
+    *,
+    checkpoint_id: str | None = None,
+    conn=None,
+) -> bool:
     """
     Update thread status (completed, interrupted, error, timeout, etc.).
 
     Args:
         conversation_thread_id: Thread ID
         status: New status
+        checkpoint_id: Optional latest checkpoint ID to store for branch tracking
         conn: Optional database connection to reuse
     """
     try:
+        if checkpoint_id:
+            sql = """
+                UPDATE conversation_threads
+                SET current_status = %s, latest_checkpoint_id = %s, updated_at = NOW()
+                WHERE conversation_thread_id = %s
+            """
+            params = (status, checkpoint_id, conversation_thread_id)
+        else:
+            sql = """
+                UPDATE conversation_threads
+                SET current_status = %s, updated_at = NOW()
+                WHERE conversation_thread_id = %s
+            """
+            params = (status, conversation_thread_id)
+
         if conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute("""
-                    UPDATE conversation_threads
-                    SET current_status = %s, updated_at = NOW()
-                    WHERE conversation_thread_id = %s
-                """, (status, conversation_thread_id))
+                await cur.execute(sql, params)
                 logger.info(f"[conversation_db] update_thread_status thread_id={conversation_thread_id} status={status}")
                 return True
         else:
             async with get_db_connection() as conn:
                 async with conn.cursor(row_factory=dict_row) as cur:
-                    await cur.execute("""
-                        UPDATE conversation_threads
-                        SET current_status = %s, updated_at = NOW()
-                        WHERE conversation_thread_id = %s
-                    """, (status, conversation_thread_id))
+                    await cur.execute(sql, params)
                     logger.info(f"[conversation_db] update_thread_status thread_id={conversation_thread_id} status={status}")
                     return True
 
     except Exception as e:
         logger.error(f"Error updating thread status: {e}")
+        return False
+
+
+async def get_thread_checkpoint_id(conversation_thread_id: str) -> str | None:
+    """Get the latest checkpoint ID stored for a thread."""
+    try:
+        async with get_db_connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    "SELECT latest_checkpoint_id FROM conversation_threads WHERE conversation_thread_id = %s",
+                    (conversation_thread_id,),
+                )
+                row = await cur.fetchone()
+                return row["latest_checkpoint_id"] if row else None
+    except Exception as e:
+        logger.error(f"Error getting thread checkpoint_id: {e}")
+        return None
+
+
+async def update_thread_checkpoint_id(
+    conversation_thread_id: str, checkpoint_id: str, conn=None
+) -> bool:
+    """Update the latest checkpoint ID for a thread without changing status."""
+    try:
+        sql = """
+            UPDATE conversation_threads
+            SET latest_checkpoint_id = %s, updated_at = NOW()
+            WHERE conversation_thread_id = %s
+        """
+        params = (checkpoint_id, conversation_thread_id)
+
+        if conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, params)
+                return True
+        else:
+            async with get_db_connection() as conn:
+                async with conn.cursor(row_factory=dict_row) as cur:
+                    await cur.execute(sql, params)
+                    return True
+    except Exception as e:
+        logger.error(f"Error updating thread checkpoint_id: {e}")
         return False
 
 
@@ -1142,6 +1198,61 @@ async def get_thread_with_summary(conversation_thread_id: str) -> Optional[Dict[
 
     except Exception as e:
         logger.error(f"Error getting thread with summary: {e}")
+        raise
+
+
+async def truncate_thread_from_turn(
+    conversation_thread_id: str,
+    from_turn_index: int,
+    preserve_query_at_fork: bool = False,
+    conn=None,
+) -> int:
+    """Delete queries and responses at turn_index >= from_turn_index.
+
+    Used by edit/regenerate/retry to clear stale turns before the normal
+    persistence flow creates fresh records. Usages are NOT affected
+    (no FK constraints after migration).
+
+    Args:
+        preserve_query_at_fork: If True, keep the query at from_turn_index
+            (used by regenerate — user message unchanged, only response regenerated).
+            Queries at turn_index > from_turn_index are still deleted.
+
+    Returns:
+        Total number of deleted rows (queries + responses).
+    """
+    async def _execute(conn):
+        # Explicit transaction required (autocommit is ON by default)
+        async with conn.transaction():
+            async with conn.cursor() as cur:
+                # Always delete all responses at fork turn and beyond
+                await cur.execute("""
+                    DELETE FROM conversation_responses
+                    WHERE conversation_thread_id = %s AND turn_index >= %s
+                """, (conversation_thread_id, from_turn_index))
+                deleted_responses = cur.rowcount
+
+                # For regenerate: keep query at fork turn, delete only later turns
+                # For edit: delete query at fork turn and beyond
+                query_op = ">" if preserve_query_at_fork else ">="
+                await cur.execute(f"""
+                    DELETE FROM conversation_queries
+                    WHERE conversation_thread_id = %s AND turn_index {query_op} %s
+                """, (conversation_thread_id, from_turn_index))
+                deleted_queries = cur.rowcount
+
+                return deleted_queries + deleted_responses
+
+    try:
+        if conn:
+            return await _execute(conn)
+        else:
+            async with get_db_connection() as conn:
+                return await _execute(conn)
+    except Exception as e:
+        logger.error(
+            f"Error truncating thread {conversation_thread_id} from turn {from_turn_index}: {e}"
+        )
         raise
 
 

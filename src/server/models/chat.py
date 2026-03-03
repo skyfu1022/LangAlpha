@@ -216,6 +216,12 @@ class ChatRequest(BaseModel):
     checkpoint_id: Optional[str] = Field(
         default=None, description="Specific checkpoint ID to resume from"
     )
+    fork_from_turn: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Turn index to truncate app DB from on edit/regenerate. "
+        "Deletes all queries/responses at turn_index >= this value before persisting.",
+    )
 
     # Localization and context
     locale: Optional[str] = Field(

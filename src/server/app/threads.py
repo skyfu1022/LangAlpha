@@ -30,6 +30,7 @@ from src.server.models.conversation import (
     ThreadShareResponse,
     SharePermissions,
 )
+from src.server.models.workflow import RetryRequest
 from src.server.database.conversation import (
     get_workspace_threads,
     get_threads_for_user,
@@ -41,6 +42,7 @@ from src.server.database.conversation import (
     get_thread_by_id,
     update_thread_sharing,
     lookup_thread_by_external_id,
+    get_next_turn_index,
 )
 from src.server.dependencies.usage_limits import ChatRateLimited
 
@@ -484,6 +486,63 @@ async def offload_thread(thread_id: str):
     """Truncate large tool arguments and offload originals to sandbox (Tier 1 only)."""
     from src.server.handlers.workflow_handler import trigger_offload
     return await trigger_offload(thread_id)
+
+
+@router.get("/{thread_id}/turns")
+async def get_thread_turns(thread_id: str):
+    """
+    Get turn-boundary checkpoint IDs for edit/regenerate/retry operations.
+
+    Returns per-turn checkpoint IDs:
+    - edit_checkpoint_id: fork BEFORE the user message (for editing)
+    - regenerate_checkpoint_id: fork AFTER user message, BEFORE AI response (for regenerating)
+    - retry_checkpoint_id: most recent checkpoint (for retrying after failure)
+    """
+    from src.server.handlers.checkpoint_handler import get_thread_turns as _get_thread_turns
+    from src.server.database.conversation import get_thread_checkpoint_id
+    branch_tip = await get_thread_checkpoint_id(thread_id)
+    return await _get_thread_turns(thread_id, branch_tip_checkpoint_id=branch_tip)
+
+
+@router.post("/{thread_id}/retry")
+async def retry_thread(
+    thread_id: str,
+    auth: ChatRateLimited,
+    body: Optional[RetryRequest] = None,
+):
+    """
+    Retry a failed or interrupted thread from its last checkpoint.
+
+    Accepts optional checkpoint_id in request body for precise control.
+    If not provided, auto-detects the latest checkpoint.
+    Returns an SSE stream.
+    """
+    from src.server.handlers.checkpoint_handler import get_retry_checkpoint
+
+    explicit_checkpoint_id = body.checkpoint_id if body else None
+    retry_checkpoint_id = await get_retry_checkpoint(thread_id, explicit_checkpoint_id)
+
+    # Resolve workspace_id from body or from the thread record
+    workspace_id = body.workspace_id if body and body.workspace_id else None
+    if not workspace_id:
+        thread_record = await get_thread_by_id(thread_id)
+        if not thread_record:
+            raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+        workspace_id = str(thread_record.get("workspace_id", ""))
+
+    # Calculate fork_from_turn for retry: overwrite the last (failed) turn
+    current_count = await get_next_turn_index(thread_id)
+    fork_turn = max(0, current_count - 1)
+
+    # Delegate to the existing message flow with checkpoint_id and empty messages
+    request = ChatRequest(
+        workspace_id=workspace_id,
+        messages=[],
+        checkpoint_id=retry_checkpoint_id,
+        fork_from_turn=fork_turn,
+    )
+
+    return await _handle_send_message(request, auth, thread_id)
 
 
 @router.get("/{thread_id}/tasks/{task_id}")
