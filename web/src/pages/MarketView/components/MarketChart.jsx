@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
-import { createChart, ColorType, CrosshairMode, PriceScaleMode, LineType } from 'lightweight-charts';
+import { createChart, ColorType, CrosshairMode, PriceScaleMode, LineType, LineStyle } from 'lightweight-charts';
 import html2canvas from 'html2canvas';
 import './MarketChart.css';
 import { fetchStockData } from '../utils/api';
@@ -11,7 +11,8 @@ import {
   MA_CONFIGS, DEFAULT_ENABLED_MA, RSI_PERIODS, BARS_PER_DAY, AUTO_FIT_BARS, TARGET_BAR_SPACING,
   OVERLAY_COLORS, OVERLAY_LABELS,
   EXTENDED_HOURS_INTERVALS, getExtendedHoursType, computeExtendedHoursRegions,
-  supports1sInterval,
+  EXT_COLOR_PRE, EXT_COLOR_POST,
+  isUSEquity, supports1sInterval,
 } from '../utils/chartConstants';
 import { ExtendedHoursBgPrimitive } from '../utils/extendedHoursBg';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -63,6 +64,9 @@ const MarketChart = React.memo(forwardRef(({
   const maSeriesRefs = useRef({});
   const baselineSeriesRef = useRef(null);
   const extHoursBgRef = useRef(null);
+  const extCloseLineRef = useRef(null);
+  const currentExtTypeRef = useRef(null);
+  const quoteDataRef = useRef(quoteData);
 
   const [loading, setLoading] = useState(true);
   const [scrollLoading, setScrollLoading] = useState(false);
@@ -129,6 +133,7 @@ const MarketChart = React.memo(forwardRef(({
   useEffect(() => { enabledMaPeriodsRef.current = enabledMaPeriods; }, [enabledMaPeriods]);
   useEffect(() => { rsiPeriodRef.current = rsiPeriod; }, [rsiPeriod]);
   useEffect(() => { intervalRef.current = interval; }, [interval]);
+  useEffect(() => { quoteDataRef.current = quoteData; }, [quoteData]);
   const symbolRef = useRef(symbol);
   useEffect(() => { symbolRef.current = symbol; }, [symbol]);
 
@@ -172,7 +177,7 @@ const MarketChart = React.memo(forwardRef(({
 
   // --- Price lines via hook ---
   const priceTargetsForAnnotations = overlayVisibility.priceTargets ? overlayData?.priceTargets : null;
-  useChartAnnotations(candlestickSeriesRef, stockMeta, quoteData, priceTargetsForAnnotations, annotationsVisible, symbol);
+  useChartAnnotations(candlestickSeriesRef, stockMeta, quoteData, priceTargetsForAnnotations, annotationsVisible, symbol, currentExtTypeRef);
 
   // --- Series markers via hook ---
   useChartOverlays(candlestickSeriesRef, chartDataForHooks, earningsData, overlayData, overlayVisibility, symbol);
@@ -287,7 +292,7 @@ const MarketChart = React.memo(forwardRef(({
     // Update candlestick series in-place (same time = update, newer = append)
     candlestickSeriesRef.current.update({ time: barTime, open: barOpen, high: barHigh, low: barLow, close: barClose });
 
-    const ext = EXTENDED_HOURS_INTERVALS.has(interval) && getExtendedHoursType(barTime);
+    const ext = isUSEquity(symbolRef.current) && EXTENDED_HOURS_INTERVALS.has(interval) && getExtendedHoursType(barTime);
     const up = barClose >= barOpen;
     const ct = ctRef.current;
     if (volumeSeriesRef.current) {
@@ -312,6 +317,9 @@ const MarketChart = React.memo(forwardRef(({
     if (ext && extHoursBgRef.current) {
       extHoursBgRef.current.setRegions(computeExtendedHoursRegions(data));
     }
+
+    // Keep extended-hours price lines in sync with live bars
+    syncExtendedHoursLines(barTime);
 
     // Incremental RSI update
     if (rsiSmoothingRef.current && rsiSeriesRef.current) {
@@ -451,10 +459,63 @@ const MarketChart = React.memo(forwardRef(({
     },
   }));
 
+  // --- Extended-hours price lines (close line + colored current-price line) ---
+  const syncExtendedHoursLines = useCallback((lastBarTime) => {
+    const series = candlestickSeriesRef.current;
+    if (!series) return;
+
+    const isExtInterval = isUSEquity(symbolRef.current) && EXTENDED_HOURS_INTERVALS.has(intervalRef.current);
+    const extType = isExtInterval ? getExtendedHoursType(lastBarTime) : null;
+    const prevType = currentExtTypeRef.current;
+
+    if (extType === prevType) return;
+    currentExtTypeRef.current = extType;
+
+    if (extType) {
+      const color = extType === 'pre' ? EXT_COLOR_PRE : EXT_COLOR_POST;
+      const label = extType === 'pre' ? 'Pre' : 'After';
+      // Color the last-value price line amber/blue and label it "Pre"/"After"
+      series.applyOptions({ priceLineColor: color, title: label });
+
+      // Add a dashed gray line at previous close, labeled "Close"
+      const prevClose = quoteDataRef.current?.previousClose;
+      if (prevClose != null) {
+        if (extCloseLineRef.current) {
+          try { series.removePriceLine(extCloseLineRef.current); } catch (_) { /* ok */ }
+        }
+        extCloseLineRef.current = series.createPriceLine({
+          price: prevClose,
+          title: 'Close',
+          color: 'rgba(139,143,163,0.7)',
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+        });
+      }
+    } else {
+      // Regular hours — reset to defaults
+      series.applyOptions({ priceLineColor: undefined, title: '' });
+      if (extCloseLineRef.current) {
+        try { series.removePriceLine(extCloseLineRef.current); } catch (_) { /* ok */ }
+        extCloseLineRef.current = null;
+      }
+    }
+  }, []);
+
+  // Re-sync extended-hours close line when quoteData.previousClose changes
+  useEffect(() => {
+    if (currentExtTypeRef.current && quoteDataRef.current?.previousClose != null) {
+      // Force re-sync by temporarily clearing the cached type
+      currentExtTypeRef.current = null;
+      const data = allDataRef.current;
+      if (data.length > 0) syncExtendedHoursLines(data[data.length - 1].time);
+    }
+  }, [quoteData?.previousClose, syncExtendedHoursLines]);
+
   // --- Update series data helper (used by both initial load and scroll load) ---
   const updateSeriesData = useCallback((data) => {
     const ct = ctRef.current;
-    const applyExt = EXTENDED_HOURS_INTERVALS.has(intervalRef.current);
+    const applyExt = isUSEquity(symbolRef.current) && EXTENDED_HOURS_INTERVALS.has(intervalRef.current);
 
     // Candlestick
     if (candlestickSeriesRef.current) {
@@ -484,6 +545,11 @@ const MarketChart = React.memo(forwardRef(({
       } else {
         extHoursBgRef.current.setRegions([]);
       }
+    }
+
+    // Extended-hours price lines (close + colored current price)
+    if (data.length > 0) {
+      syncExtendedHoursLines(data[data.length - 1].time);
     }
 
     // All MAs — compute all enabled, clear disabled
@@ -804,6 +870,8 @@ const MarketChart = React.memo(forwardRef(({
       clearTimeout(rangeChangeTimerRef.current);
 
       extHoursBgRef.current = null;
+      extCloseLineRef.current = null;
+      currentExtTypeRef.current = null;
       candlestickSeriesRef.current = null;
       volumeSeriesRef.current = null;
       baselineSeriesRef.current = null;
@@ -864,7 +932,7 @@ const MarketChart = React.memo(forwardRef(({
       // Re-color volume bars (extended-hours aware)
       if (volumeSeriesRef.current && allDataRef.current.length > 0) {
         const data = allDataRef.current;
-        const applyExt = EXTENDED_HOURS_INTERVALS.has(intervalRef.current);
+        const applyExt = isUSEquity(symbolRef.current) && EXTENDED_HOURS_INTERVALS.has(intervalRef.current);
         volumeSeriesRef.current.setData(data.map((d, i) => {
           const up = i > 0 && d.close >= data[i - 1].close;
           const ext = applyExt && getExtendedHoursType(d.time);
@@ -997,6 +1065,16 @@ const MarketChart = React.memo(forwardRef(({
 
     // Reset baseline on symbol/interval change
     if (showBaseline) setShowBaseline(false);
+
+    // Reset extended-hours price lines on symbol/interval change
+    if (extCloseLineRef.current && candlestickSeriesRef.current) {
+      try { candlestickSeriesRef.current.removePriceLine(extCloseLineRef.current); } catch (_) { /* ok */ }
+    }
+    extCloseLineRef.current = null;
+    currentExtTypeRef.current = null;
+    if (candlestickSeriesRef.current) {
+      candlestickSeriesRef.current.applyOptions({ priceLineColor: undefined });
+    }
 
     // Clear stale chart data so previous interval/symbol doesn't linger under an error
     const clearChartSeries = () => {

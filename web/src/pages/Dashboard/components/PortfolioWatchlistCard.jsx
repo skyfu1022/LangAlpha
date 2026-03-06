@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, ArrowUpRight, ArrowDownRight, Trash2, Pencil, Eye, EyeOff } from 'lucide-react';
+import { Plus, ArrowUpRight, ArrowDownRight, Trash2, Pencil, Eye, EyeOff, Sunrise, Sunset } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { getExtendedHoursInfo } from '@/lib/marketUtils';
@@ -39,7 +39,8 @@ function WatchlistItem({ item, index, onDelete, marketStatus }) {
   const pctStr = (pos ? '+' : '') + Number(item.changePercent).toFixed(2) + '%';
 
   // Extended hours: show when not regular session and data available
-  const { extPct, extLabel } = getExtendedHoursInfo(marketStatus, item, { shortLabels: true });
+  const { extPct, extType, extPrice, extChange } = getExtendedHoursInfo(marketStatus, item, { shortLabels: true });
+  const extColor = extType === 'pre' ? '#fbbf24' : '#3b82f6';
 
   const handleContextMenu = (e) => {
     if (!item.watchlist_item_id) return;
@@ -76,7 +77,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus }) {
         <div className="flex items-center gap-4">
           <div className="text-right">
             <div className="text-sm font-medium dashboard-mono" style={{ color: 'var(--color-text-primary)' }}>
-              {Number(item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {Number(extType && item.previousClose != null ? item.previousClose : item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <div className="text-xs font-medium dashboard-mono" style={{ color: pos ? 'var(--color-profit)' : 'var(--color-loss)' }}>
               {(pos ? '+' : '') + Number(item.change).toFixed(2)}
@@ -93,9 +94,10 @@ function WatchlistItem({ item, index, onDelete, marketStatus }) {
             >
               {pctStr}
             </div>
-            {extLabel && extPct != null && (
-              <div className="text-[10px] mt-0.5 text-center" style={{ color: extLabel === 'PM' ? '#fbbf24' : '#3b82f6' }}>
-                {extLabel}: {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
+            {extType && extPct != null && (
+              <div className="text-[10px] mt-0.5 text-center flex items-center justify-center gap-0.5" style={{ color: extColor }}>
+                {extType === 'pre' ? <Sunrise size={10} /> : <Sunset size={10} />}
+                {Number(item.price).toFixed(2)} {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
               </div>
             )}
           </div>
@@ -121,7 +123,8 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
       : '—';
 
   // Extended hours
-  const { extPct, extLabel } = getExtendedHoursInfo(marketStatus, item, { shortLabels: true });
+  const { extPct, extType, extPrice } = getExtendedHoursInfo(marketStatus, item, { shortLabels: true });
+  const extColor = extType === 'pre' ? '#fbbf24' : '#3b82f6';
 
   const handleContextMenu = (e) => {
     if (!item.user_portfolio_id) return;
@@ -163,7 +166,7 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
               {valuesHidden ? '******' : `$${Number(item.marketValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </div>
             <div className="text-xs dashboard-mono" style={{ color: 'var(--color-text-secondary)' }}>
-              {valuesHidden ? '***' : `@${Number(item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              {valuesHidden ? '***' : `@${Number(extType && item.previousClose != null ? item.previousClose : item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </div>
           </div>
 
@@ -177,9 +180,10 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
             >
               {plStr}
             </div>
-            {extLabel && extPct != null && (
-              <div className="text-[10px] mt-0.5 text-center" style={{ color: extLabel === 'PM' ? '#fbbf24' : '#3b82f6' }}>
-                {extLabel}: {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
+            {extType && extPct != null && (
+              <div className="text-[10px] mt-0.5 text-center flex items-center justify-center gap-0.5" style={{ color: extColor }}>
+                {extType === 'pre' ? <Sunrise size={10} /> : <Sunset size={10} />}
+                {Number(item.price).toFixed(2)} {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
               </div>
             )}
           </div>
