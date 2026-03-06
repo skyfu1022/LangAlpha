@@ -215,26 +215,6 @@ function Dashboard() {
     }
   }, [navigate, toast]);
 
-  const navigateToModifyPreferences = useCallback(async () => {
-    try {
-      const flashWs = await getFlashWorkspace();
-      navigate(`/chat/${flashWs.workspace_id}/__default__`, {
-        state: {
-          isModifyingPreferences: true,
-          agentMode: 'flash',
-          workspaceStatus: 'flash',
-        },
-      });
-    } catch (error) {
-      console.error('Error navigating to modify preferences:', error);
-      toast({
-        variant: 'destructive',
-        title: t('common.error'),
-        description: t('dashboard.failedPrefUpdate'),
-      });
-    }
-  }, [navigate, toast]);
-
   const watchlist = useWatchlistData();
   const portfolio = usePortfolioData();
 
@@ -264,7 +244,7 @@ function Dashboard() {
     <div className="dashboard-container min-h-screen">
       {/* Main content area */}
       <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-        <DashboardHeader onModifyPreferences={navigateToModifyPreferences} onStartOnboarding={navigateToOnboarding} />
+        <DashboardHeader />
 
         <div className="mx-auto max-w-[1920px] w-full p-6 pb-32">
           {/* Market Overview heading */}
