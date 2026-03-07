@@ -212,6 +212,9 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
   // Track current plan mode so HITL resume can forward it
   const currentPlanModeRef = useRef(false);
 
+  // Track last-used model options so HITL resume can forward them
+  const lastModelOptionsRef = useRef({ model: null, reasoningEffort: null, fastMode: null });
+
   // Refs for streaming state
   const currentMessageRef = useRef(null);
   const contentOrderCounterRef = useRef(0);
@@ -2700,7 +2703,7 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
    * @param {Array|null} additionalContext - Optional additional context for skill loading
    * @param {Array|null} attachmentMeta - Optional attachment metadata for user message display
    */
-  const handleSendMessage = async (message, planMode = false, additionalContext = null, attachmentMeta = null, { model, reasoningEffort } = {}) => {
+  const handleSendMessage = async (message, planMode = false, additionalContext = null, attachmentMeta = null, { model, reasoningEffort, fastMode } = {}) => {
     const hasContent = message.trim() || (additionalContext && additionalContext.length > 0);
     if (!workspaceId || !hasContent) {
       return;
@@ -2713,6 +2716,9 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
 
     // Store planMode so HITL interrupt handler can access it
     currentPlanModeRef.current = planMode;
+
+    // Store model options so HITL resume can forward them
+    lastModelOptionsRef.current = { model: model || null, reasoningEffort: reasoningEffort || null, fastMode: fastMode || null };
 
     // Intercept: if a plan was rejected, route this message as rejection feedback
     if (pendingRejection) {
@@ -2816,7 +2822,8 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
         agentMode,
         undefined, undefined, undefined, undefined,
         model || null,
-        reasoningEffort || null
+        reasoningEffort || null,
+        fastMode || null
       );
 
       if (result?.disconnected) {
@@ -2920,7 +2927,8 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
         threadId,
         hitlResponse,
         processEvent,
-        planMode
+        planMode,
+        lastModelOptionsRef.current
       );
 
       if (result?.disconnected) {

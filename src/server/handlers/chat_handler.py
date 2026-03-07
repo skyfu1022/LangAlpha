@@ -511,6 +511,7 @@ async def resolve_oauth_llm_client(
     user_id: str,
     model_name: str,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
 ):
     """Resolve OAuth-connected LLM client. Independent of BYOK toggle."""
     from src.llms.llm import LLM as LLMFactory, create_llm
@@ -561,6 +562,7 @@ async def resolve_oauth_llm_client(
         api_key=access_token,
         default_headers=headers if headers else None,
         reasoning_effort=reasoning_effort,
+        **({"service_tier": service_tier} if service_tier and provider != "claude-oauth" else {}),
     )
 
 
@@ -599,6 +601,7 @@ async def resolve_llm_config(
     is_byok: bool,
     mode: str = "ptc",
     reasoning_effort: str | None = None,
+    fast_mode: bool | None = None,
 ):
     """
     Resolve final LLM config with priority:
@@ -673,9 +676,16 @@ async def resolve_llm_config(
     if not effective_reasoning:
         effective_reasoning = model_pref.get("reasoning_effort")
 
+    # Resolve fast mode: per-request > user pref > None
+    effective_fast = fast_mode
+    if effective_fast is None:
+        effective_fast = model_pref.get("fast_mode")
+    effective_service_tier = "priority" if effective_fast else None
+
     # Try OAuth-connected providers first (independent of BYOK toggle)
     oauth_client = await resolve_oauth_llm_client(
-        user_id, effective_model, effective_reasoning
+        user_id, effective_model, effective_reasoning,
+        service_tier=effective_service_tier,
     )
     if oauth_client:
         if config is base_config:
@@ -864,6 +874,7 @@ async def astream_flash_workflow(
             config = await resolve_llm_config(
                 setup.agent_config, user_id, request.llm_model, is_byok, mode="flash",
                 reasoning_effort=getattr(request, "reasoning_effort", None),
+                fast_mode=getattr(request, "fast_mode", None),
             )
 
         # Propagate fetch model override to tool context
@@ -1619,6 +1630,7 @@ async def astream_ptc_workflow(
             config = await resolve_llm_config(
                 setup.agent_config, user_id, request.llm_model, is_byok, mode="ptc",
                 reasoning_effort=getattr(request, "reasoning_effort", None),
+                fast_mode=getattr(request, "fast_mode", None),
             )
 
         # Propagate fetch model override to tool context
