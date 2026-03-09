@@ -3333,9 +3333,10 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
     const msgIndex = messages.findIndex((m) => m.id === messageId);
     if (msgIndex === -1) return;
 
-    // Count user messages up to and including this one to get turn_index
-    const userMsgsBefore = messages.slice(0, msgIndex + 1).filter((m) => m.role === 'user');
-    const turnIndex = userMsgsBefore.length - 1;
+    // Count assistant messages before this user message to get turn_index.
+    // Uses assistant count because HITL resume turns create assistant bubbles
+    // without user bubbles, and backend turns include HITL resumes.
+    const turnIndex = messages.slice(0, msgIndex).filter((m) => m.role === 'assistant').length;
 
     const turnsData = await getTurnCheckpoints();
     if (!turnsData?.turns?.[turnIndex]) {
@@ -3360,9 +3361,10 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
     const msgIndex = messages.findIndex((m) => m.id === messageId);
     if (msgIndex === -1) return;
 
-    // Count user messages before this assistant message to get turn_index
-    const userMsgsBefore = messages.slice(0, msgIndex).filter((m) => m.role === 'user');
-    const turnIndex = userMsgsBefore.length - 1;
+    // Count assistant messages up to and including this one to get turn_index.
+    // Uses assistant count because HITL resume turns create assistant bubbles
+    // without user bubbles, and backend turns include HITL resumes.
+    const turnIndex = messages.slice(0, msgIndex + 1).filter((m) => m.role === 'assistant').length - 1;
 
     const turnsData = await getTurnCheckpoints();
     if (!turnsData?.turns?.[turnIndex]) {
@@ -3405,8 +3407,7 @@ export function useChatMessages(workspaceId, initialThreadId = null, updateTodoL
   const deriveTurnIndex = useCallback((messageId) => {
     const msgIndex = messages.findIndex(m => m.id === messageId);
     if (msgIndex === -1) return -1;
-    const userMsgsBefore = messages.slice(0, msgIndex + 1).filter(m => m.role === 'user');
-    return userMsgsBefore.length - 1;
+    return messages.slice(0, msgIndex + 1).filter(m => m.role === 'assistant').length - 1;
   }, [messages]);
 
   const handleThumbUp = useCallback(async (messageId) => {

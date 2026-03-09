@@ -82,7 +82,8 @@ async def get_thread_turns(
             else None
         )
 
-    # Collect turns: only source=input checkpoints on the current branch,
+    # Collect turns: source=input checkpoints (user messages) and HITL resume
+    # boundaries (__resume__ in pending_writes) on the current branch,
     # processed in chronological order (reverse of alist).
     turns = []
     for cp_tuple in reversed(checkpoints):
@@ -90,18 +91,28 @@ async def get_thread_turns(
         if cp_id not in current_branch:
             continue
         metadata = cp_tuple.metadata or {}
-        if metadata.get("source") == "input":
-            input_checkpoint_id = cp_id
+        is_source_input = metadata.get("source") == "input"
 
-            # The parent checkpoint is the state BEFORE this user message
+        # Detect HITL resume: checkpoint has __resume__ in pending_writes.
+        # Command(resume=...) creates source=loop (not source=input), so
+        # we detect these by looking for the __resume__ channel.
+        is_hitl_resume = False
+        if not is_source_input and cp_tuple.pending_writes:
+            is_hitl_resume = any(
+                channel == "__resume__"
+                for _, channel, _ in cp_tuple.pending_writes
+            )
+
+        if is_source_input or is_hitl_resume:
+            # The parent checkpoint is the state BEFORE this turn
             edit_checkpoint_id = None
-            if cp_tuple.parent_config:
+            if is_source_input and cp_tuple.parent_config:
                 edit_checkpoint_id = cp_tuple.parent_config["configurable"].get("checkpoint_id")
 
             turns.append(TurnCheckpointInfo(
                 turn_index=len(turns),
                 edit_checkpoint_id=edit_checkpoint_id,
-                regenerate_checkpoint_id=input_checkpoint_id,
+                regenerate_checkpoint_id=cp_id,
             ))
 
     retry_checkpoint_id = latest.config["configurable"]["checkpoint_id"]
