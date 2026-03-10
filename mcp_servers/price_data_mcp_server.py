@@ -17,104 +17,80 @@ Tools:
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
-import httpx
 from mcp.server.fastmcp import FastMCP
 
 from data_client.fmp import get_fmp_client, close_fmp_client
+from data_client.ginlix_data import (
+    DAILY_INTERVALS,
+    close_ginlix_mcp_client,
+    get_ginlix_mcp_client,
+)
+from data_client.market_data_provider import is_us_symbol
+from data_client.normalize import normalize_bars
 
 
 # ---------------------------------------------------------------------------
-# Ginlix-data client (optional — for short data)
+# Clients
 # ---------------------------------------------------------------------------
 
-_ginlix_http: httpx.AsyncClient | None = None
+_ginlix = get_ginlix_mcp_client()
+
+_INTRADAY_INTERVALS_STOCK = {"1min", "5min", "15min", "30min", "1hour", "4hour"}
+_INTRADAY_INTERVALS_ASSET = {"1min", "5min", "1hour"}
 
 
 @asynccontextmanager
 async def _lifespan(app):
-    global _ginlix_http
-    ginlix_url = os.getenv("GINLIX_DATA_URL", "")
-    if ginlix_url:
-        headers: dict[str, str] = {}
-        token = os.getenv("INTERNAL_SERVICE_TOKEN", "")
-        if token:
-            headers["X-Service-Token"] = token
-        _ginlix_http = httpx.AsyncClient(
-            base_url=ginlix_url.rstrip("/"),
-            headers=headers,
-            timeout=30.0,
-        )
     try:
         yield
     finally:
-        if _ginlix_http:
-            await _ginlix_http.aclose()
-            _ginlix_http = None
+        await close_ginlix_mcp_client()
         await close_fmp_client()
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+_MISSING_DATES_ERROR = {
+    "error": "start_date and end_date are required for intraday intervals. "
+    "Use YYYY-MM-DD or YYYY-MM-DD HH:MM format.",
+}
+
+
+def _ginlix_result_to_response(
+    result: list[dict] | dict | None,
+    symbol: str,
+    interval: str,
+    **extra: Any,
+) -> dict | None:
+    """Convert ``fetch_stock_data`` result to a tool response dict.
+
+    Returns ``dict`` (success or error) or ``None`` (not available → try fallback).
+    """
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        return result  # error dict
+    return {
+        **extra,
+        "symbol": symbol,
+        "interval": interval,
+        "count": len(result),
+        "rows": result,
+        "source": "ginlix-data",
+    }
+
+
+# ---------------------------------------------------------------------------
+# MCP server + tools
+# ---------------------------------------------------------------------------
+
 mcp = FastMCP("PriceDataMCP", lifespan=_lifespan)
-
-
-_INTRADAY_INTERVALS_STOCK = {"1min", "5min", "15min", "30min", "1hour", "4hour"}
-_INTRADAY_INTERVALS_ASSET = {"1min", "5min", "1hour"}
-_DAILY_INTERVALS = {"daily", "1day"}
-
-
-def _as_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _normalize_date(value: Any) -> str:
-    """Return an ISO string usable for sorting and display."""
-
-    if value is None:
-        return ""
-
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-
-    text = str(value)
-    # FMP sometimes returns "YYYY-MM-DD" or full ISO datetime.
-    return text
-
-
-def _normalize_ohlcv_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
-
-    for row in rows:
-        normalized_row = {
-            "date": _normalize_date(row.get("date")),
-            "open": _as_float(row.get("open")),
-            "high": _as_float(row.get("high")),
-            "low": _as_float(row.get("low")),
-            "close": _as_float(row.get("close")),
-            "volume": _as_float(row.get("volume")),
-        }
-        normalized.append(normalized_row)
-
-    # Descending (newest first). ISO strings are sortable lexicographically.
-    normalized.sort(key=lambda r: r.get("date") or "", reverse=True)
-    return normalized
-
-
-def _default_dates_for_intraday(from_date: str | None, to_date: str | None) -> tuple[str, str]:
-    end_dt = date.today()
-    start_dt = end_dt - timedelta(days=7)
-    return (
-        from_date or start_dt.strftime("%Y-%m-%d"),
-        to_date or end_dt.strftime("%Y-%m-%d"),
-    )
 
 
 @mcp.tool()
@@ -126,51 +102,73 @@ async def get_stock_data(
 ) -> dict:
     """Get normalized OHLCV for a stock symbol.
 
+    Timestamps are in exchange-local time (e.g., US Eastern for US stocks,
+    HKT for .HK, CST for .SS/.SZ).
+
     Args:
         symbol: Stock ticker (e.g., AAPL, MSFT, 600519.SS, 0700.HK)
-        interval: "1day"/"daily" or intraday: 1min/5min/15min/30min/1hour/4hour
-        start_date: YYYY-MM-DD (optional)
-        end_date: YYYY-MM-DD (optional)
+        interval: "1day"/"daily" or intraday: 1s/1min/5min/15min/30min/1hour/4hour
+        start_date: YYYY-MM-DD (required). Append HH:MM for intraday time filtering.
+        end_date: YYYY-MM-DD (required). Append HH:MM for intraday time filtering.
 
     Returns:
-        dict: {
-          "symbol": str,
-          "interval": str,
-          "count": int,
-          "rows": list[dict],
-          "source": "fmp"
-        }
+        dict with symbol, interval, count, rows, source.
         rows are normalized: date/open/high/low/close/volume (descending by date).
     """
-
     interval_lower = interval.lower()
 
+    # 1s interval: ginlix-data only, US stocks only
+    if interval_lower == "1s":
+        if not is_us_symbol(symbol):
+            return {"error": "1-second interval is only available for US stocks."}
+        if not start_date or not end_date:
+            return {
+                "error": "start_date and end_date are required for 1s interval. "
+                "Use YYYY-MM-DD or YYYY-MM-DD HH:MM format.",
+            }
+        if not await _ginlix.ensure():
+            return {
+                "error": "1-second interval requires ginlix-data (not configured). "
+                "Use 1min or higher with FMP.",
+            }
+        result = await _ginlix.fetch_stock_data(symbol, interval_lower, start_date, end_date)
+        resp = _ginlix_result_to_response(result, symbol, interval_lower)
+        return resp or {"error": "Failed to fetch 1s data from ginlix-data."}
+
+    # Try ginlix-data first (if available)
+    ginlix_result = await _ginlix.fetch_stock_data(symbol, interval_lower, start_date, end_date)
+    ginlix_resp = _ginlix_result_to_response(ginlix_result, symbol, interval_lower)
+    if ginlix_resp is not None:
+        return ginlix_resp
+
+    # Fall back to FMP
     try:
         client = await get_fmp_client()
     except Exception as e:  # noqa: BLE001
         return {"error": f"Failed to initialize FMP client: {e}"}
 
     try:
-        if interval_lower in _DAILY_INTERVALS:
+        if interval_lower in DAILY_INTERVALS:
             rows = await client.get_stock_price(symbol, from_date=start_date, to_date=end_date)
         else:
             if interval_lower not in _INTRADAY_INTERVALS_STOCK:
                 return {
                     "error": "Unsupported interval for stock",
-                    "supported": sorted(_DAILY_INTERVALS | _INTRADAY_INTERVALS_STOCK),
+                    "supported": sorted(DAILY_INTERVALS | _INTRADAY_INTERVALS_STOCK),
                 }
 
-            intraday_start, intraday_end = _default_dates_for_intraday(start_date, end_date)
+            if not start_date or not end_date:
+                return _MISSING_DATES_ERROR
             rows = await client.get_intraday_chart(
                 symbol,
                 interval_lower,
-                from_date=intraday_start,
-                to_date=intraday_end,
+                from_date=start_date,
+                to_date=end_date,
             )
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
 
-    normalized = _normalize_ohlcv_rows(rows or [])
+    normalized = normalize_bars(rows or [], symbol)
     return {
         "symbol": symbol,
         "interval": interval_lower,
@@ -190,25 +188,54 @@ async def get_asset_data(
 ) -> dict:
     """Get normalized OHLCV for stock/commodity/crypto/forex.
 
+    Timestamps are in exchange-local time (e.g., US Eastern for US stocks,
+    HKT for .HK, CST for .SS/.SZ).
+
     Args:
         symbol: Asset symbol (e.g., GCUSD, BTCUSD, EURUSD, AAPL)
         asset_type: one of stock/commodity/crypto/forex
         interval: daily/1day or intraday
-          - stock: 1min/5min/15min/30min/1hour/4hour
+          - stock: 1s/1min/5min/15min/30min/1hour/4hour
           - commodity/crypto/forex: 1min/5min/1hour
-        from_date: YYYY-MM-DD (optional)
-        to_date: YYYY-MM-DD (optional)
+        from_date: YYYY-MM-DD (required). Append HH:MM for intraday time filtering.
+        to_date: YYYY-MM-DD (required). Append HH:MM for intraday time filtering.
 
     Returns:
         dict with symbol, asset_type, interval, count, rows (descending), source.
     """
-
     at = asset_type.lower().strip()
     interval_lower = interval.lower()
 
     if at not in {"stock", "commodity", "crypto", "forex"}:
         return {"error": "Invalid asset_type", "supported": ["stock", "commodity", "crypto", "forex"]}
 
+    # Stock: ginlix-data → FMP fallback
+    if at == "stock":
+        # 1s interval: ginlix-data only, US stocks only
+        if interval_lower == "1s":
+            if not is_us_symbol(symbol):
+                return {"error": "1-second interval is only available for US stocks."}
+            if not from_date or not to_date:
+                return {
+                    "error": "from_date and to_date are required for 1s interval. "
+                    "Use YYYY-MM-DD or YYYY-MM-DD HH:MM format.",
+                }
+            if not await _ginlix.ensure():
+                return {
+                    "error": "1-second interval requires ginlix-data (not configured). "
+                    "Use 1min or higher with FMP.",
+                }
+            result = await _ginlix.fetch_stock_data(symbol, interval_lower, from_date, to_date)
+            resp = _ginlix_result_to_response(result, symbol, interval_lower, asset_type=at)
+            return resp or {"error": "Failed to fetch 1s data from ginlix-data."}
+
+        # Try ginlix-data first
+        ginlix_result = await _ginlix.fetch_stock_data(symbol, interval_lower, from_date, to_date)
+        ginlix_resp = _ginlix_result_to_response(ginlix_result, symbol, interval_lower, asset_type=at)
+        if ginlix_resp is not None:
+            return ginlix_resp
+
+    # FMP path (all asset types, stock fallback)
     try:
         client = await get_fmp_client()
     except Exception as e:  # noqa: BLE001
@@ -216,66 +243,54 @@ async def get_asset_data(
 
     try:
         if at == "stock":
-            if interval_lower in _DAILY_INTERVALS:
+            if interval_lower in DAILY_INTERVALS:
                 rows = await client.get_stock_price(symbol, from_date=from_date, to_date=to_date)
             else:
                 if interval_lower not in _INTRADAY_INTERVALS_STOCK:
                     return {
                         "error": "Unsupported interval for stock",
-                        "supported": sorted(_DAILY_INTERVALS | _INTRADAY_INTERVALS_STOCK),
+                        "supported": sorted(DAILY_INTERVALS | _INTRADAY_INTERVALS_STOCK),
                     }
-
-                intraday_start, intraday_end = _default_dates_for_intraday(from_date, to_date)
+                if not from_date or not to_date:
+                    return _MISSING_DATES_ERROR
                 rows = await client.get_intraday_chart(
                     symbol,
                     interval_lower,
-                    from_date=intraday_start,
-                    to_date=intraday_end,
+                    from_date=from_date,
+                    to_date=to_date,
                 )
-
         else:
-            if interval_lower in _DAILY_INTERVALS:
+            if interval_lower in DAILY_INTERVALS:
                 if at == "commodity":
                     rows = await client.get_commodity_price(symbol, from_date=from_date, to_date=to_date)
                 elif at == "crypto":
                     rows = await client.get_crypto_price(symbol, from_date=from_date, to_date=to_date)
                 else:
                     rows = await client.get_forex_price(symbol, from_date=from_date, to_date=to_date)
-
             else:
                 if interval_lower not in _INTRADAY_INTERVALS_ASSET:
                     return {
                         "error": "Unsupported interval for commodity/crypto/forex",
-                        "supported": sorted(_DAILY_INTERVALS | _INTRADAY_INTERVALS_ASSET),
+                        "supported": sorted(DAILY_INTERVALS | _INTRADAY_INTERVALS_ASSET),
                     }
-
-                intraday_start, intraday_end = _default_dates_for_intraday(from_date, to_date)
+                if not from_date or not to_date:
+                    return _MISSING_DATES_ERROR
                 if at == "commodity":
                     rows = await client.get_commodity_intraday_chart(
-                        symbol,
-                        interval_lower,
-                        from_date=intraday_start,
-                        to_date=intraday_end,
+                        symbol, interval_lower, from_date=from_date, to_date=to_date,
                     )
                 elif at == "crypto":
                     rows = await client.get_crypto_intraday_chart(
-                        symbol,
-                        interval_lower,
-                        from_date=intraday_start,
-                        to_date=intraday_end,
+                        symbol, interval_lower, from_date=from_date, to_date=to_date,
                     )
                 else:
                     rows = await client.get_forex_intraday_chart(
-                        symbol,
-                        interval_lower,
-                        from_date=intraday_start,
-                        to_date=intraday_end,
+                        symbol, interval_lower, from_date=from_date, to_date=to_date,
                     )
-
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
 
-    normalized = _normalize_ohlcv_rows(rows or [])
+    normalized = normalize_bars(rows or [], symbol)
     return {
         "symbol": symbol,
         "asset_type": at,
@@ -311,48 +326,9 @@ async def get_short_data(
         short_interest fields: ticker, settlement_date, short_interest, avg_daily_volume, days_to_cover
         short_volume fields: ticker, date, short_volume, total_volume, short_volume_ratio, exempt_volume, non_exempt_volume
     """
-    if _ginlix_http is None:
-        return {"error": "Short data requires ginlix-data. Set GINLIX_DATA_URL to enable."}
-
-    result: dict[str, Any] = {"symbol": symbol, "source": "ginlix-data"}
-
-    if data_type in ("short_interest", "both"):
-        params: dict[str, Any] = {
-            "ticker": symbol, "limit": limit, "sort": "settlement_date.desc",
-        }
-        if from_date:
-            params["settlement_date.gte"] = from_date
-        if to_date:
-            params["settlement_date.lte"] = to_date
-        try:
-            resp = await _ginlix_http.get(
-                "/api/v1/data/stocks/short-interest", params=params,
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            result["short_interest"] = body.get("results", [])
-        except Exception as e:  # noqa: BLE001
-            result["short_interest_error"] = str(e)
-
-    if data_type in ("short_volume", "both"):
-        params = {
-            "ticker": symbol, "limit": limit, "sort": "date.desc",
-        }
-        if from_date:
-            params["date.gte"] = from_date
-        if to_date:
-            params["date.lte"] = to_date
-        try:
-            resp = await _ginlix_http.get(
-                "/api/v1/data/stocks/short-volume", params=params,
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            result["short_volume"] = body.get("results", [])
-        except Exception as e:  # noqa: BLE001
-            result["short_volume_error"] = str(e)
-
-    return result
+    return await _ginlix.fetch_short_data(
+        symbol, data_type=data_type, from_date=from_date, to_date=to_date, limit=limit,
+    )
 
 
 if __name__ == "__main__":

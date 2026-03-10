@@ -75,10 +75,21 @@ class TestGetStockData:
 
         client = _make_fmp_client()
         with patch(f"{_MOD}.get_fmp_client", return_value=client):
-            result = await get_stock_data("AAPL", interval="5min")
+            result = await get_stock_data(
+                "AAPL", interval="5min",
+                start_date="2025-01-01", end_date="2025-01-07",
+            )
 
         assert result["interval"] == "5min"
         client.get_intraday_chart.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_intraday_missing_dates(self):
+        from mcp_servers.price_data_mcp_server import get_stock_data
+
+        result = await get_stock_data("AAPL", interval="5min")
+        assert "error" in result
+        assert "required" in result["error"]
 
     @pytest.mark.asyncio
     async def test_unsupported_interval(self):
@@ -161,7 +172,10 @@ class TestGetAssetData:
 
         client = _make_fmp_client()
         with patch(f"{_MOD}.get_fmp_client", return_value=client):
-            result = await get_asset_data("BTCUSD", asset_type="crypto", interval="5min")
+            result = await get_asset_data(
+                "BTCUSD", asset_type="crypto", interval="5min",
+                from_date="2025-01-01", to_date="2025-01-07",
+            )
 
         assert result["interval"] == "5min"
         client.get_crypto_intraday_chart.assert_awaited_once()
@@ -202,41 +216,46 @@ class TestGetAssetData:
 # get_short_data
 # ---------------------------------------------------------------------------
 
+_GINLIX_MOD = "data_client.ginlix_data.mcp_client"
+
+
+def _mock_ginlix_request(*responses):
+    """Create a mock for GinlixMCPClient.request that returns canned responses."""
+    mock = AsyncMock(side_effect=responses)
+    return mock
+
+
+def _make_response(json_data):
+    resp = MagicMock()
+    resp.json.return_value = json_data
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
 class TestGetShortData:
     @pytest.mark.asyncio
     async def test_no_ginlix_client(self):
-        """When GINLIX_DATA_URL is not set, should return an error."""
+        """When ginlix-data is not configured, should return an error."""
         import mcp_servers.price_data_mcp_server as mod
 
-        original = mod._ginlix_http
-        mod._ginlix_http = None
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=False), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock):
             result = await mod.get_short_data("AAPL")
             assert "error" in result
             assert "ginlix-data" in result["error"]
-        finally:
-            mod._ginlix_http = original
 
     @pytest.mark.asyncio
     async def test_both_data_types(self):
         """Default data_type='both' should fetch SI and SV."""
         import mcp_servers.price_data_mcp_server as mod
 
-        mock_http = AsyncMock()
-        si_resp = MagicMock()
-        si_resp.json.return_value = _SHORT_INTEREST
-        si_resp.raise_for_status = MagicMock()
-        sv_resp = MagicMock()
-        sv_resp.json.return_value = _SHORT_VOLUME
-        sv_resp.raise_for_status = MagicMock()
-        mock_http.get = AsyncMock(side_effect=[si_resp, sv_resp])
+        si_resp = _make_response(_SHORT_INTEREST)
+        sv_resp = _make_response(_SHORT_VOLUME)
 
-        original = mod._ginlix_http
-        mod._ginlix_http = mock_http
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=True), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock,
+                          side_effect=[si_resp, sv_resp]):
             result = await mod.get_short_data("AAPL")
-        finally:
-            mod._ginlix_http = original
 
         assert result["symbol"] == "AAPL"
         assert result["source"] == "ginlix-data"
@@ -249,41 +268,28 @@ class TestGetShortData:
     async def test_short_interest_only(self):
         import mcp_servers.price_data_mcp_server as mod
 
-        mock_http = AsyncMock()
-        resp = MagicMock()
-        resp.json.return_value = _SHORT_INTEREST
-        resp.raise_for_status = MagicMock()
-        mock_http.get = AsyncMock(return_value=resp)
+        si_resp = _make_response(_SHORT_INTEREST)
 
-        original = mod._ginlix_http
-        mod._ginlix_http = mock_http
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=True), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock,
+                          return_value=si_resp) as mock_req:
             result = await mod.get_short_data("AAPL", data_type="short_interest")
-        finally:
-            mod._ginlix_http = original
 
         assert "short_interest" in result
         assert "short_volume" not in result
-        # Verify correct API path
-        call_args = mock_http.get.call_args
-        assert "short-interest" in call_args[0][0]
+        call_args = mock_req.call_args
+        assert "short-interest" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_short_volume_only(self):
         import mcp_servers.price_data_mcp_server as mod
 
-        mock_http = AsyncMock()
-        resp = MagicMock()
-        resp.json.return_value = _SHORT_VOLUME
-        resp.raise_for_status = MagicMock()
-        mock_http.get = AsyncMock(return_value=resp)
+        sv_resp = _make_response(_SHORT_VOLUME)
 
-        original = mod._ginlix_http
-        mod._ginlix_http = mock_http
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=True), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock,
+                          return_value=sv_resp):
             result = await mod.get_short_data("AAPL", data_type="short_volume")
-        finally:
-            mod._ginlix_http = original
 
         assert "short_volume" in result
         assert "short_interest" not in result
@@ -293,23 +299,17 @@ class TestGetShortData:
         """from_date/to_date should be passed as query params."""
         import mcp_servers.price_data_mcp_server as mod
 
-        mock_http = AsyncMock()
-        resp = MagicMock()
-        resp.json.return_value = _SHORT_INTEREST
-        resp.raise_for_status = MagicMock()
-        mock_http.get = AsyncMock(return_value=resp)
+        si_resp = _make_response(_SHORT_INTEREST)
 
-        original = mod._ginlix_http
-        mod._ginlix_http = mock_http
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=True), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock,
+                          return_value=si_resp) as mock_req:
             await mod.get_short_data(
                 "AAPL", data_type="short_interest",
                 from_date="2025-01-01", to_date="2025-03-31",
             )
-        finally:
-            mod._ginlix_http = original
 
-        call_kwargs = mock_http.get.call_args
+        call_kwargs = mock_req.call_args
         params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
         assert params["settlement_date.gte"] == "2025-01-01"
         assert params["settlement_date.lte"] == "2025-03-31"
@@ -320,17 +320,11 @@ class TestGetShortData:
         """HTTP errors should be captured in *_error keys, not raise."""
         import mcp_servers.price_data_mcp_server as mod
 
-        mock_http = AsyncMock()
-        mock_http.get = AsyncMock(side_effect=httpx.HTTPStatusError(
-            "500", request=MagicMock(), response=MagicMock(),
-        ))
-
-        original = mod._ginlix_http
-        mod._ginlix_http = mock_http
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=True), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock,
+                          side_effect=httpx.HTTPStatusError(
+                              "500", request=MagicMock(), response=MagicMock())):
             result = await mod.get_short_data("AAPL")
-        finally:
-            mod._ginlix_http = original
 
         assert "short_interest_error" in result or "short_volume_error" in result
 
@@ -338,20 +332,14 @@ class TestGetShortData:
     async def test_custom_limit(self):
         import mcp_servers.price_data_mcp_server as mod
 
-        mock_http = AsyncMock()
-        resp = MagicMock()
-        resp.json.return_value = {"results": []}
-        resp.raise_for_status = MagicMock()
-        mock_http.get = AsyncMock(return_value=resp)
+        empty_resp = _make_response({"results": []})
 
-        original = mod._ginlix_http
-        mod._ginlix_http = mock_http
-        try:
+        with patch.object(mod._ginlix, "ensure", return_value=True), \
+             patch.object(mod._ginlix, "request", new_callable=AsyncMock,
+                          return_value=empty_resp) as mock_req:
             await mod.get_short_data("GME", data_type="short_interest", limit=100)
-        finally:
-            mod._ginlix_http = original
 
-        call_kwargs = mock_http.get.call_args
+        call_kwargs = mock_req.call_args
         params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
         assert params["limit"] == 100
 
@@ -362,24 +350,29 @@ class TestGetShortData:
 
 class TestNormalization:
     def test_normalize_ohlcv_descending(self):
-        from mcp_servers.price_data_mcp_server import _normalize_ohlcv_rows
+        from data_client.normalize import normalize_bars
 
         rows = [
             {"date": "2025-01-01", "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100},
             {"date": "2025-01-03", "open": 2, "high": 3, "low": 1, "close": 2.5, "volume": 200},
         ]
-        result = _normalize_ohlcv_rows(rows)
+        result = normalize_bars(rows, "AAPL")
         assert result[0]["date"] == "2025-01-03"
         assert result[1]["date"] == "2025-01-01"
 
-    def test_normalize_date_handles_none(self):
-        from mcp_servers.price_data_mcp_server import _normalize_date
+    def test_normalize_date_passthrough(self):
+        from data_client.normalize import normalize_bars
 
-        assert _normalize_date(None) == ""
-        assert _normalize_date("2025-01-01") == "2025-01-01"
+        # Bars without a time field pass through the date string as-is
+        rows = [{"date": "2025-01-01", "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}]
+        result = normalize_bars(rows, "AAPL")
+        assert result[0]["date"] == "2025-01-01"
+
+        empty = normalize_bars([{"open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}], "AAPL")
+        assert empty[0]["date"] == ""
 
     def test_as_float_handles_edge_cases(self):
-        from mcp_servers.price_data_mcp_server import _as_float
+        from data_client.normalize import _as_float
 
         assert _as_float(None) is None
         assert _as_float("10.5") == 10.5
