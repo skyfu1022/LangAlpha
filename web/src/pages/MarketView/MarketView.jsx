@@ -285,8 +285,9 @@ function MarketViewInner() {
           return;
         }
 
-        navigate(`/chat/${workspaceId}/__default__`, {
+        navigate(`/chat/t/__default__`, {
           state: {
+            workspaceId,
             initialMessage: message,
             planMode: planMode || false,
             additionalContext: imageContext,

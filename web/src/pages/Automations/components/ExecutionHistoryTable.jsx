@@ -64,7 +64,9 @@ export default function ExecutionHistoryTable({ executions, loading, workspaceId
                       onClick={(e) => {
                         e.stopPropagation();
                         const threadId = exec.conversation_thread_id;
-                        navigate(workspaceId ? `/chat/${workspaceId}/${threadId}` : `/chat/${threadId}`);
+                        navigate(`/chat/t/${threadId}`, {
+                          state: workspaceId ? { workspaceId } : {},
+                        });
                       }}
                       className="hover:underline truncate max-w-[120px] block"
                       style={{ color: 'var(--color-accent-primary)' }}

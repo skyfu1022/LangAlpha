@@ -74,8 +74,9 @@ export function useChatInput() {
         const flashWs = await getFlashWorkspace();
         const workspaceId = flashWs.workspace_id;
 
-        navigate(`/chat/${workspaceId}/__default__`, {
+        navigate(`/chat/t/__default__`, {
           state: {
+            workspaceId,
             initialMessage: message.trim(),
             planMode: false,
             agentMode: 'flash',
@@ -98,8 +99,9 @@ export function useChatInput() {
           return;
         }
 
-        navigate(`/chat/${workspaceId}/__default__`, {
+        navigate(`/chat/t/__default__`, {
           state: {
+            workspaceId,
             initialMessage: message.trim(),
             planMode: planMode,
             ...(additionalContext ? { additionalContext } : {}),

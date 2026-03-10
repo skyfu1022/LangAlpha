@@ -93,8 +93,8 @@ function OpenInMarketLink({ symbol }) {
     e.stopPropagation();
     const qs = new URLSearchParams({ symbol });
     // Encode current chat route so MarketView can offer a "Return to Chat" button
-    if (params.workspaceId && params.threadId) {
-      qs.set('returnTo', `/chat/${params.workspaceId}/${params.threadId}`);
+    if (params.threadId) {
+      qs.set('returnTo', `/chat/t/${params.threadId}`);
     }
     navigate(`/market?${qs.toString()}`);
   };

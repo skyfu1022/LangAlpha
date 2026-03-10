@@ -27,8 +27,9 @@ export function useThreadGalleryInput(workspaceId) {
     try {
       // Navigate to ChatAgent page with workspace, new thread, and message in state
       // Use '__default__' as threadId to create a new thread
-      navigate(`/chat/${workspaceId}/__default__`, {
+      navigate(`/chat/t/__default__`, {
         state: {
+          workspaceId,
           initialMessage: message.trim(),
           planMode: planMode,
         },

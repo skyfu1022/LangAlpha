@@ -286,8 +286,8 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
   // Navigate to a newly created workspace with an optional starter question
   const handleWorkspaceCreated = useCallback(({ workspaceId: newWsId, question }) => {
     if (!newWsId) return;
-    const path = `/chat/${newWsId}/__default__`;
-    const state = question ? { initialMessage: question } : {};
+    const path = `/chat/t/__default__`;
+    const state = { workspaceId: newWsId, ...(question ? { initialMessage: question } : {}) };
     navigate(path, { state });
   }, [navigate]);
 
@@ -314,8 +314,9 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
   const handleNavigateThread = useCallback((wsId, tid) => {
     // Find workspace name from nav data for route state
     const ws = navWorkspaces.find((w) => w.workspace_id === wsId);
-    navigate(`/chat/${wsId}/${tid}`, {
+    navigate(`/chat/t/${tid}`, {
       state: {
+        workspaceId: wsId,
         workspaceName: ws?.name || workspaceName || '',
         workspaceStatus: ws?.status || null,
         ...(ws?.status === 'flash' ? { agentMode: 'flash' } : {}),
@@ -907,7 +908,7 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
       console.log('[ChatView] Thread ID changed from', threadId, 'to', currentThreadId, '- updating URL');
       // Update URL to reflect the actual thread ID
       // This will cause ChatAgent to re-render with new threadId prop, triggering history load
-      navigate(`/chat/${workspaceId}/${currentThreadId}`, { replace: true });
+      navigate(`/chat/t/${currentThreadId}`, { replace: true, state: { workspaceId } });
     }
   }, [currentThreadId, threadId, workspaceId, navigate]);
 

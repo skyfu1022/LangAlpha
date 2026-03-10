@@ -66,6 +66,17 @@ export async function reorderWorkspaces(items) {
 // --- Threads ---
 
 /**
+ * Get a single thread by ID (used to resolve workspace_id on direct URL access)
+ * @param {string} threadId - The thread ID
+ * @returns {Promise<Object>} Thread object with workspace_id, thread_id, title, etc.
+ */
+export async function getThread(threadId) {
+  if (!threadId) throw new Error('Thread ID is required');
+  const { data } = await api.get(`/api/v1/threads/${threadId}`);
+  return data;
+}
+
+/**
  * Get all threads for a specific workspace
  * @param {string} workspaceId - The workspace ID
  * @param {number} limit - Maximum threads to return (default: 20)
@@ -171,7 +182,8 @@ async function streamFetch(url, opts, onEvent) {
 
 export async function replayThreadHistory(threadId, onEvent = () => {}) {
   if (!threadId) throw new Error('Thread ID is required');
-  await streamFetch(`/api/v1/threads/${threadId}/messages/replay`, { method: 'GET' }, onEvent);
+  const authHeaders = await getAuthHeaders();
+  await streamFetch(`/api/v1/threads/${threadId}/messages/replay`, { method: 'GET', headers: { ...authHeaders } }, onEvent);
 }
 
 export async function sendChatMessageStream(

@@ -43,7 +43,9 @@ function Sidebar() {
       const session = getChatSession();
       if (session) {
         if (session.threadId) {
-          navigate(`/chat/${session.workspaceId}/${session.threadId}`);
+          navigate(`/chat/t/${session.threadId}`, {
+            state: { workspaceId: session.workspaceId },
+          });
         } else {
           navigate(`/chat/${session.workspaceId}`);
         }

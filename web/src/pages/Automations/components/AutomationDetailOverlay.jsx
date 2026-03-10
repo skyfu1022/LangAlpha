@@ -151,7 +151,9 @@ export default function AutomationDetailOverlay({
               onClick={() => {
                 const wsId = automation.workspace_id;
                 const threadId = latestThreadExecution.conversation_thread_id;
-                navigate(wsId ? `/chat/${wsId}/${threadId}` : `/chat/${threadId}`);
+                navigate(`/chat/t/${threadId}`, {
+                  state: wsId ? { workspaceId: wsId } : {},
+                });
               }}
               className="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors hover:bg-foreground/5"
               style={{ borderColor: 'var(--color-border-default)', color: 'var(--color-accent-primary)' }}

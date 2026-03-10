@@ -59,8 +59,9 @@ export function useOnboarding() {
         setIsCreatingWorkspace(true);
         try {
             const flashWs = await getFlashWorkspace();
-            navigate(`/chat/${flashWs.workspace_id}/__default__`, {
+            navigate(`/chat/t/__default__`, {
                 state: {
+                    workspaceId: flashWs.workspace_id,
                     isOnboarding: true,
                     agentMode: 'flash',
                     workspaceStatus: 'flash',
@@ -81,8 +82,9 @@ export function useOnboarding() {
     const navigateToModifyPreferences = useCallback(async () => {
         try {
             const flashWs = await getFlashWorkspace();
-            navigate(`/chat/${flashWs.workspace_id}/__default__`, {
+            navigate(`/chat/t/__default__`, {
                 state: {
+                    workspaceId: flashWs.workspace_id,
                     isModifyingPreferences: true,
                     agentMode: 'flash',
                     workspaceStatus: 'flash',

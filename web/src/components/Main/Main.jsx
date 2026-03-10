@@ -30,7 +30,7 @@ function Main() {
             <Routes location={location}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/chat" element={<ChatAgent />} />
-              <Route path="/chat/:workspaceId/:threadId" element={<ChatAgent />} />
+              <Route path="/chat/t/:threadId" element={<ChatAgent />} />
               <Route path="/chat/:workspaceId" element={<ChatAgent />} />
               <Route path="/market" element={<MarketView />} />
               <Route path="/automations" element={<Automations />} />
