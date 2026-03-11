@@ -3,6 +3,17 @@
  * Provides helper functions for creating and updating message objects
  */
 
+import type {
+  ChatMessage,
+  AssistantMessage,
+  UserMessage,
+  NotificationMessage,
+  NotificationVariant,
+} from '@/types/chat';
+
+// Re-export types for consumers
+export type { ChatMessage, AssistantMessage, UserMessage, NotificationMessage, NotificationVariant };
+
 // Module-level sequence counter to avoid ID collisions when multiple
 // notifications are created within the same millisecond.
 let _notifSeq = 0;
@@ -12,47 +23,6 @@ export interface AttachmentMeta {
   dataUrl: string;
   type: string;
 }
-
-export interface ContentSegment {
-  type: string;
-  content: string;
-  [key: string]: unknown;
-}
-
-export interface UserMessage {
-  id: string;
-  role: 'user';
-  content: string;
-  contentType: string;
-  timestamp: Date;
-  isStreaming: boolean;
-  attachments?: AttachmentMeta[];
-}
-
-export interface AssistantMessage {
-  id: string;
-  role: 'assistant';
-  content: string;
-  contentType: string;
-  timestamp: Date;
-  isStreaming: boolean;
-  contentSegments: ContentSegment[];
-  reasoningProcesses: Record<string, unknown>;
-  toolCallProcesses: Record<string, unknown>;
-  todoListProcesses: Record<string, unknown>;
-}
-
-export type NotificationVariant = 'info' | 'success' | 'warning';
-
-export interface NotificationMessage {
-  id: string;
-  role: 'notification';
-  content: string;
-  variant: NotificationVariant;
-  timestamp: Date;
-}
-
-export type ChatMessage = UserMessage | AssistantMessage | NotificationMessage;
 
 /**
  * Creates a user message object
@@ -67,7 +37,11 @@ export function createUserMessage(message: string, attachments: AttachmentMeta[]
     isStreaming: false,
   };
   if (attachments && attachments.length > 0) {
-    msg.attachments = attachments;
+    // AttachmentMeta is the upload-time shape (file, dataUrl, type).
+    // Attachment from sse.ts has a different shape (name, size, url).
+    // At send time only AttachmentMeta fields are used, so store as-is.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    msg.attachments = attachments as any;
   }
   return msg;
 }
@@ -94,11 +68,11 @@ export function createAssistantMessage(messageId: string | null = null): Assista
 /**
  * Updates a specific message in the messages array
  */
-export function updateMessage(
-  messages: ChatMessage[],
+export function updateMessage<T extends { id: string }>(
+  messages: T[],
   messageId: string,
-  updater: (msg: ChatMessage) => ChatMessage,
-): ChatMessage[] {
+  updater: (msg: T) => T,
+): T[] {
   return messages.map((msg) => {
     if (msg.id !== messageId) return msg;
     return updater(msg);
@@ -108,11 +82,11 @@ export function updateMessage(
 /**
  * Inserts a message at a specific index in the messages array
  */
-export function insertMessage(
-  messages: ChatMessage[],
+export function insertMessage<T extends { id: string }>(
+  messages: T[],
   insertIndex: number,
-  newMessage: ChatMessage,
-): ChatMessage[] {
+  newMessage: T,
+): T[] {
   return [
     ...messages.slice(0, insertIndex),
     newMessage,
@@ -123,7 +97,7 @@ export function insertMessage(
 /**
  * Appends a message to the end of the messages array
  */
-export function appendMessage(messages: ChatMessage[], newMessage: ChatMessage): ChatMessage[] {
+export function appendMessage<T extends { id: string }>(messages: T[], newMessage: T): T[] {
   return [...messages, newMessage];
 }
 

@@ -14,6 +14,7 @@ export type SSEEventType =
   | 'error'
   | 'queued_message_injected'
   | 'task_message_queued'
+  | 'interrupt'
   | 'finish';
 
 /** Base interface for all SSE events */
@@ -147,6 +148,34 @@ export interface Attachment {
   [key: string]: unknown;
 }
 
+export interface ActionRequest {
+  type?: string;
+  name?: string;
+  description?: string;
+  args?: Record<string, unknown>;
+  question?: string;
+  options?: string[];
+  allow_multiple?: boolean;
+  workspace_name?: string;
+  workspace_description?: string;
+  workspace_id?: string;
+}
+
+export interface InterruptEvent extends BaseSSEEvent {
+  event: 'interrupt';
+  interrupt_id?: string;
+  action_requests?: ActionRequest[];
+  thread_id?: string;
+  role?: string;
+  finish_reason?: string;
+  turn_index?: number;
+}
+
+export interface FinishEvent extends BaseSSEEvent {
+  event: 'finish';
+  finish_reason?: string;
+}
+
 /** Discriminated union of all SSE events */
 export type SSEEvent =
   | ReasoningSignalEvent
@@ -161,4 +190,6 @@ export type SSEEvent =
   | ErrorEvent
   | QueuedMessageInjectedEvent
   | TaskMessageQueuedEvent
-  | UserMessageEvent;
+  | UserMessageEvent
+  | InterruptEvent
+  | FinishEvent;

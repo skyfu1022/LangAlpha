@@ -1401,7 +1401,7 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
                   <div className="px-6 py-4 flex justify-center">
                     <div className="w-full max-w-3xl">
                       <MessageList
-                        messages={messages}
+                        messages={messages as unknown as MessageRecord[]}
                         isLoading={isLoading}
                         isLoadingHistory={isLoadingHistory}
                         onOpenFile={handleOpenFileFromChat}

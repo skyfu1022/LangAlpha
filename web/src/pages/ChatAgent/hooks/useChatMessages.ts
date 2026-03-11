@@ -19,7 +19,9 @@ import { useTranslation } from 'react-i18next';
 import { sendChatMessageStream, replayThreadHistory, getWorkflowStatus, reconnectToWorkflowStream, sendHitlResponse, streamSubagentTaskEvents, fetchThreadTurns, submitFeedback, removeFeedback, getThreadFeedback } from '../utils/api';
 import { getStoredThreadId, setStoredThreadId } from './utils/threadStorage';
 export { removeStoredThreadId } from './utils/threadStorage';
-import { createUserMessage, createAssistantMessage, createNotificationMessage, insertMessage, appendMessage, updateMessage } from './utils/messageHelpers';
+import { createUserMessage, createAssistantMessage, createNotificationMessage, insertMessage, appendMessage, updateMessage, type AttachmentMeta } from './utils/messageHelpers';
+import type { ChatMessage, AssistantMessage, UserMessage } from '@/types/chat';
+import type { ActionRequest, ToolCallData } from '@/types/sse';
 import { createRecentlySentTracker } from './utils/recentlySentTracker';
 import {
   handleReasoningSignal,
@@ -51,9 +53,8 @@ import {
 
 // --- Internal types for useChatMessages ---
 
-/** Loosely-typed message record — matches handlers in streamEventHandlers/historyEventHandlers. */
-// TODO: type properly — tighten once ChatMessage covers all dynamic properties
-type MessageRecord = Record<string, unknown>;
+/** Message record — now properly typed as ChatMessage. */
+type MessageRecord = ChatMessage;
 
 /** React state setter for messages array. */
 type SetMessages = React.Dispatch<React.SetStateAction<MessageRecord[]>>;
@@ -76,7 +77,7 @@ interface PendingInterrupt {
   questionId?: string;
   proposalId?: string;
   planMode?: boolean;
-  actionRequests?: Record<string, unknown>[];
+  actionRequests?: ActionRequest[];
   threadId?: string;
 }
 
@@ -98,9 +99,9 @@ interface SSEEvent {
   _eventId?: number | string;
   timestamp?: string | number;
   metadata?: Record<string, unknown>;
-  tool_calls?: Record<string, unknown>[];
+  tool_calls?: ToolCallData[];
   tool_call_id?: string;
-  tool_call_chunks?: Record<string, unknown>[];
+  tool_call_chunks?: Array<{ id?: string; name?: string; args?: string }>;
   finish_reason?: string;
   artifact_type?: string;
   artifact_id?: string;
@@ -109,7 +110,7 @@ interface SSEEvent {
   thread_id?: string;
   messages?: Record<string, unknown>[];
   interrupt_id?: string;
-  action_requests?: Record<string, unknown>[];
+  action_requests?: ActionRequest[];
   status?: string;
   signal?: string;
   action?: string;
@@ -157,7 +158,7 @@ interface OffloadBatch {
 /** Callbacks for handleContextWindowEvent. */
 interface ContextWindowCallbacks {
   getMsgId: () => string | null;
-  nextOrder: () => number | string;
+  nextOrder: () => number;
   setMessages: SetMessages;
   setTokenUsage: React.Dispatch<React.SetStateAction<TokenUsage | null>>;
   setIsCompacting: ((v: string | false) => void) | null;
@@ -172,18 +173,19 @@ interface SubagentHistoryEntry {
   description: string;
   prompt: string;
   type: string;
-  messages: MessageRecord[];
+  messages: Record<string, unknown>[];
   status: string;
   toolCalls: number;
   currentTool: string;
 }
 
-/** Per-task ref state used by stream handlers. */
+/** Per-task ref state used by stream handlers.
+ *  messages is Record<string, unknown>[] to match the handler module's MessageRecord type. */
 interface TaskRefs {
   contentOrderCounterRef: { current: number };
   currentReasoningIdRef: { current: string | null };
   currentToolCallIdRef: { current: string | null };
-  messages: MessageRecord[];
+  messages: Record<string, unknown>[];
   runIndex: number;
 }
 
@@ -200,7 +202,7 @@ interface HistoryInterruptInfo {
 
 /** Subagent history data accumulated during replay. */
 interface SubagentHistoryData {
-  messages: MessageRecord[];
+  messages: Record<string, unknown>[];
   events: SSEEvent[];
   description?: string;
   prompt?: string;
@@ -214,7 +216,7 @@ interface StreamProcessorRefs {
   currentReasoningIdRef: { current: string | null };
   currentToolCallIdRef: { current: string | null };
   queuedAtOrderRef?: { current: number | null };
-  updateTodoListCard?: ((data: Record<string, unknown>) => void) | null;
+  updateTodoListCard?: ((data: Record<string, unknown>, isNew: boolean) => void) | undefined;
   isNewConversation?: boolean;
   subagentStateRefs?: Record<string, TaskRefs>;
   updateSubagentCard?: ((agentId: string, data: Record<string, unknown>) => void);
@@ -230,22 +232,6 @@ interface PairState {
   toolCallId: string | null;
 }
 
-/**
- * Typed wrappers for message helpers that bridge MessageRecord[] <-> ChatMessage[].
- * These allow updateMessage/appendMessage to work with our loosely-typed MessageRecord state.
- */
-// TODO: type properly — remove these wrappers once ChatMessage covers all dynamic properties
-function updateMessageRecord(
-  messages: MessageRecord[],
-  messageId: string,
-  updater: (msg: MessageRecord) => MessageRecord,
-): MessageRecord[] {
-  return updateMessage(messages as any, messageId, updater as any) as unknown as MessageRecord[];
-}
-
-function appendMessageRecord(messages: MessageRecord[], newMessage: MessageRecord): MessageRecord[] {
-  return appendMessage(messages as any, newMessage as any) as unknown as MessageRecord[];
-}
 
 /**
  * Checks if a tool result indicates an onboarding-related success.
@@ -313,10 +299,14 @@ function handleContextWindowEvent(event: SSEEvent, { getMsgId, nextOrder, setMes
       const msgId = getMsgId();
       if (msgId) {
         const order = nextOrder();
-        setMessages((prev) => updateMessageRecord(prev,msgId, (msg) => ({
-          ...msg,
-          contentSegments: [...((msg.contentSegments || []) as any[]), { type: 'notification', content: text, order }],
-        })));
+        setMessages((prev) => updateMessage(prev,msgId, (msg) => {
+          if (msg.role !== 'assistant') return msg;
+          const aMsg = msg as AssistantMessage;
+          return {
+            ...aMsg,
+            contentSegments: [...(aMsg.contentSegments || []), { type: 'notification' as const, content: text, order }],
+          };
+        }));
       } else {
         insertNotification(text);
       }
@@ -360,10 +350,14 @@ function handleContextWindowEvent(event: SSEEvent, { getMsgId, nextOrder, setMes
         if (text) {
           if (msgId) {
             const order = nextOrder();
-            setMessages((prev) => updateMessageRecord(prev,msgId, (msg) => ({
-              ...msg,
-              contentSegments: [...((msg.contentSegments || []) as any[]), { type: 'notification', content: text, order }],
-            })));
+            setMessages((prev) => updateMessage(prev,msgId, (msg) => {
+              if (msg.role !== 'assistant') return msg;
+              const aMsg = msg as AssistantMessage;
+              return {
+                ...aMsg,
+                contentSegments: [...(aMsg.contentSegments || []), { type: 'notification' as const, content: text, order }],
+              };
+            }));
           } else {
             insertNotification(text);
           }
@@ -380,7 +374,7 @@ function handleContextWindowEvent(event: SSEEvent, { getMsgId, nextOrder, setMes
 export function useChatMessages(
   workspaceId: string,
   initialThreadId: string | null = null,
-  updateTodoListCard: ((todoData: Record<string, unknown>) => void) | null = null,
+  updateTodoListCard: ((todoData: Record<string, unknown>, isNew?: boolean) => void) | null = null,
   updateSubagentCard: ((agentId: string, data: Record<string, unknown>) => void) | null = null,
   inactivateAllSubagents: (() => void) | null = null,
   completePendingTodos: (() => void) | null = null,
@@ -419,6 +413,11 @@ export function useChatMessages(
   // Token usage tracking (for context window progress ring)
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [isShared, setIsShared] = useState(false);
+
+  // Bridge: handler modules define their own local SetMessages accepting Record<string, unknown>[]
+  const setMessagesForHandlers = setMessages as unknown as (
+    updater: (prev: Record<string, unknown>[]) => Record<string, unknown>[]
+  ) => void;
 
   // Track current plan mode so HITL resume can forward it
   const currentPlanModeRef = useRef(false);
@@ -587,7 +586,7 @@ export function useChatMessages(
         }
 
         // Check if this is a subagent event - filter it out from main chat view
-        const isSubagent = isSubagentHistoryEvent(event as any);
+        const isSubagent = isSubagentHistoryEvent(event as Record<string, unknown>);
 
         // Update current active pair when we see an event with turn_index
         if (hasPairIndex) {
@@ -605,7 +604,7 @@ export function useChatMessages(
               ? (assistantMessagesByPair.get(currentActivePairIndex) ?? null) : null,
             nextOrder: () => {
               const eventId = event._eventId;
-              if (eventId != null) return eventId;
+              if (eventId != null) return Number(eventId);
               if (currentActivePairState) {
                 currentActivePairState.contentOrderCounter++;
                 return currentActivePairState.contentOrderCounter;
@@ -639,12 +638,12 @@ export function useChatMessages(
         // Handle queued_message_injected events from sse_events
         if (eventType === 'queued_message_injected' && hasPairIndex) {
           handleHistoryQueuedMessageInjected({
-            event: event as any,
+            event: event as Record<string, unknown>,
             pairIndex: event.turn_index!,
             assistantMessagesByPair,
             pairStateByPair,
             refs: { newMessagesStartIndexRef, historyMessagesRef },
-            setMessages: setMessages as any,
+            setMessages: setMessagesForHandlers,
           });
           return;
         }
@@ -694,11 +693,13 @@ export function useChatMessages(
               const hasContent = typeof event.content === 'string' && event.content.trim();
               const resolvedStatus = hasContent ? 'rejected' : 'approved';
               setMessages((prev) =>
-                updateMessageRecord(prev,matched.assistantMessageId, (msg) => {
-                  const approvals = (msg.planApprovals || {}) as Record<string, Record<string, unknown>>;
+                updateMessage(prev,matched.assistantMessageId, (msg) => {
+                  if (msg.role !== 'assistant') return msg;
+                  const aMsg = msg as AssistantMessage;
+                  const approvals = aMsg.planApprovals || {};
                   const key = matched.planApprovalId!;
                   return {
-                    ...msg,
+                    ...aMsg,
                     planApprovals: {
                       ...approvals,
                       [key]: {
@@ -727,16 +728,18 @@ export function useChatMessages(
                   const resolvedStatus = answerValue !== null ? 'answered' : 'skipped';
                   const qKey = matched.questionId!;
                   setMessages((prev) =>
-                    updateMessageRecord(prev,matched.assistantMessageId, (msg) => {
-                      const questions = (msg.userQuestions || {}) as Record<string, Record<string, unknown>>;
+                    updateMessage(prev,matched.assistantMessageId, (msg) => {
+                      if (msg.role !== 'assistant') return msg;
+                      const aMsg = msg as AssistantMessage;
+                      const questions = aMsg.userQuestions || {};
                       return {
-                        ...msg,
+                        ...aMsg,
                         userQuestions: {
                           ...questions,
                           [qKey]: {
                             ...(questions[qKey] || {}),
                             status: resolvedStatus,
-                            answer: answerValue,
+                            answer: answerValue as string | null,
                           },
                         },
                       };
@@ -757,13 +760,13 @@ export function useChatMessages(
           };
 
           handleHistoryUserMessage({
-            event: event as any,
+            event: event as Record<string, unknown>,
             pairIndex,
             assistantMessagesByPair,
             pairStateByPair,
             refs,
-            messages: messages as any,
-            setMessages: setMessages as any,
+            messages: messages as unknown as Record<string, unknown>[],
+            setMessages: setMessagesForHandlers,
           });
           return;
         }
@@ -787,7 +790,7 @@ export function useChatMessages(
               signalContent,
               pairIndex,
               pairState,
-              setMessages: setMessages as any,
+              setMessages: setMessagesForHandlers,
               eventId: event._eventId as number | undefined,
             });
             return;
@@ -799,7 +802,7 @@ export function useChatMessages(
               assistantMessageId: currentAssistantMessageId,
               content: event.content as string,
               pairState,
-              setMessages: setMessages as any,
+              setMessages: setMessagesForHandlers,
             });
             return;
           }
@@ -811,7 +814,7 @@ export function useChatMessages(
               content: event.content as string,
               finishReason: event.finish_reason,
               pairState,
-              setMessages: setMessages as any,
+              setMessages: setMessagesForHandlers,
               eventId: event._eventId as number | undefined,
             });
             return;
@@ -820,7 +823,7 @@ export function useChatMessages(
           // Handle finish_reason (end of assistant message)
           if (event.finish_reason) {
             setMessages((prev) =>
-              updateMessageRecord(prev,currentAssistantMessageId, (msg) => ({
+              updateMessage(prev,currentAssistantMessageId, (msg) => ({
                 ...msg,
                 isStreaming: false,
               }))
@@ -875,7 +878,7 @@ export function useChatMessages(
                 artifactId: event.artifact_id as string,
                 payload,
                 pairState: pairState,
-                setMessages: setMessages as any,
+                setMessages: setMessagesForHandlers,
                 eventId: event._eventId as number | undefined,
               });
             } else {
@@ -901,7 +904,7 @@ export function useChatMessages(
                   artifactId: event.artifact_id as string,
                   payload,
                   pairState: targetPairState,
-                  setMessages: setMessages as any,
+                  setMessages: setMessagesForHandlers,
                   eventId: event._eventId as number | undefined,
                 });
               }
@@ -988,7 +991,7 @@ export function useChatMessages(
           // Skip follow-up/resume calls (task_id present) — they target existing subagents
           if (event.tool_calls) {
             const taskToolCalls = event.tool_calls.filter(
-              (tc) => (tc.name === 'task' || tc.name === 'Task') && tc.id && !(tc.args as any)?.task_id
+              (tc) => (tc.name === 'task' || tc.name === 'Task') && tc.id && !tc.args?.task_id
             );
             const toolCallIds = taskToolCalls.map((tc) => tc.id).filter(Boolean) as string[];
             if (toolCallIds.length > 0) {
@@ -1001,9 +1004,9 @@ export function useChatMessages(
 
           handleHistoryToolCalls({
             assistantMessageId: currentAssistantMessageId,
-            toolCalls: event.tool_calls as any,
+            toolCalls: (event.tool_calls || []) as unknown as Record<string, unknown>[],
             pairState,
-            setMessages: setMessages as any,
+            setMessages: setMessagesForHandlers,
             eventId: event._eventId as number | undefined,
           });
           return;
@@ -1061,7 +1064,7 @@ export function useChatMessages(
               artifact: event.artifact,
             },
             pairState,
-            setMessages: setMessages as any,
+            setMessages: setMessagesForHandlers,
           });
 
           // Resolve pending ask_user_question interrupt from tool_call_result
@@ -1076,10 +1079,12 @@ export function useChatMessages(
               const answerText = isAnswered ? content.replace('User answered: ', '') : null;
               const qKey = matched.questionId!;
               setMessages((prev) =>
-                updateMessageRecord(prev, matched.assistantMessageId, (msg) => {
-                  const questions = (msg.userQuestions || {}) as Record<string, Record<string, unknown>>;
+                updateMessage(prev, matched.assistantMessageId, (msg) => {
+                  if (msg.role !== 'assistant') return msg;
+                  const aMsg = msg as AssistantMessage;
+                  const questions = aMsg.userQuestions || {};
                   return {
-                    ...msg,
+                    ...aMsg,
                     userQuestions: {
                       ...questions,
                       [qKey]: {
@@ -1115,10 +1120,12 @@ export function useChatMessages(
 
               const pKey = matched.proposalId!;
               setMessages((prev) =>
-                updateMessageRecord(prev,matched.assistantMessageId, (msg) => {
-                  const existing = ((msg as any)[dataKey] || {}) as Record<string, Record<string, unknown>>;
+                updateMessage(prev,matched.assistantMessageId, (msg) => {
+                  if (msg.role !== 'assistant') return msg;
+                  const aMsg = msg as AssistantMessage;
+                  const existing = ((aMsg as unknown as Record<string, unknown>)[dataKey] || {}) as Record<string, Record<string, unknown>>;
                   return {
-                    ...msg,
+                    ...aMsg,
                     [dataKey]: {
                       ...existing,
                       [pKey]: {
@@ -1149,15 +1156,16 @@ export function useChatMessages(
             if (actionType === 'ask_user_question') {
               // --- User question interrupt (history) ---
               const questionId = event.interrupt_id || `question-history-${Date.now()}`;
-              const questionData = actionRequests[0] as Record<string, unknown>;
-              const order = event._eventId != null ? event._eventId : ++pairState.contentOrderCounter;
+              const questionData = actionRequests[0];
+              const order = event._eventId != null ? Number(event._eventId) : ++pairState.contentOrderCounter;
 
               setMessages((prev) =>
-                updateMessageRecord(prev,interruptAssistantId, (m) => {
-                  const msg = m as any;
+                updateMessage(prev,interruptAssistantId, (m) => {
+                  if (m.role !== 'assistant') return m;
+                  const msg = m as AssistantMessage;
                   return {
                     ...msg,
-                    contentSegments: [...(msg.contentSegments || []), { type: 'user_question', questionId, order }],
+                    contentSegments: [...(msg.contentSegments || []), { type: 'user_question' as const, questionId, order }],
                     userQuestions: {
                       ...(msg.userQuestions || {}),
                       [questionId]: {
@@ -1183,15 +1191,16 @@ export function useChatMessages(
             } else if (actionType === 'create_workspace') {
               // --- Create workspace interrupt (history) ---
               const proposalId = event.interrupt_id || `workspace-history-${Date.now()}`;
-              const proposalData = actionRequests[0] as Record<string, unknown>;
-              const order = event._eventId != null ? event._eventId : ++pairState.contentOrderCounter;
+              const proposalData = actionRequests[0];
+              const order = event._eventId != null ? Number(event._eventId) : ++pairState.contentOrderCounter;
 
               setMessages((prev) =>
-                updateMessageRecord(prev,interruptAssistantId, (m) => {
-                  const msg = m as any;
+                updateMessage(prev,interruptAssistantId, (m) => {
+                  if (m.role !== 'assistant') return m;
+                  const msg = m as AssistantMessage;
                   return {
                     ...msg,
-                    contentSegments: [...(msg.contentSegments || []), { type: 'create_workspace', proposalId, order }],
+                    contentSegments: [...(msg.contentSegments || []), { type: 'create_workspace' as const, proposalId, order }],
                     workspaceProposals: {
                       ...(msg.workspaceProposals || {}),
                       [proposalId]: {
@@ -1214,15 +1223,16 @@ export function useChatMessages(
             } else if (actionType === 'start_question') {
               // --- Start question interrupt (history) ---
               const proposalId = event.interrupt_id || `question-start-history-${Date.now()}`;
-              const proposalData = actionRequests[0] as Record<string, unknown>;
-              const order = event._eventId != null ? event._eventId : ++pairState.contentOrderCounter;
+              const proposalData = actionRequests[0];
+              const order = event._eventId != null ? Number(event._eventId) : ++pairState.contentOrderCounter;
 
               setMessages((prev) =>
-                updateMessageRecord(prev,interruptAssistantId, (m) => {
-                  const msg = m as any;
+                updateMessage(prev,interruptAssistantId, (m) => {
+                  if (m.role !== 'assistant') return m;
+                  const msg = m as AssistantMessage;
                   return {
                     ...msg,
-                    contentSegments: [...(msg.contentSegments || []), { type: 'start_question', proposalId, order }],
+                    contentSegments: [...(msg.contentSegments || []), { type: 'start_question' as const, proposalId, order }],
                     questionProposals: {
                       ...(msg.questionProposals || {}),
                       [proposalId]: {
@@ -1247,16 +1257,17 @@ export function useChatMessages(
               const planApprovalId = event.interrupt_id || `plan-history-${Date.now()}`;
               const description =
                 (actionRequests[0]?.description as string) ||
-                ((actionRequests[0]?.args as any)?.plan as string) ||
+                (actionRequests[0]?.args?.plan as string) ||
                 'No plan description provided.';
-              const order = event._eventId != null ? event._eventId : ++pairState.contentOrderCounter;
+              const order = event._eventId != null ? Number(event._eventId) : ++pairState.contentOrderCounter;
 
               setMessages((prev) =>
-                updateMessageRecord(prev,interruptAssistantId, (m) => {
-                  const msg = m as any;
+                updateMessage(prev,interruptAssistantId, (m) => {
+                  if (m.role !== 'assistant') return m;
+                  const msg = m as AssistantMessage;
                   return {
                     ...msg,
-                    contentSegments: [...(msg.contentSegments || []), { type: 'plan_approval', planApprovalId, order }],
+                    contentSegments: [...(msg.contentSegments || []), { type: 'plan_approval' as const, planApprovalId, order }],
                     planApprovals: {
                       ...(msg.planApprovals || {}),
                       [planApprovalId]: {
@@ -1335,18 +1346,21 @@ export function useChatMessages(
           for (const [taskId, subagentHistory] of subagentHistoryByTaskId.entries()) {
             // Create temporary refs structure for processing
             let currentRunIndex = 0;
-            const tempSubagentStateRefs = {
+            const tempSubagentStateRefs: Record<string, TaskRefs> = {
               [taskId]: {
                 contentOrderCounterRef: { current: 0 },
                 currentReasoningIdRef: { current: null },
                 currentToolCallIdRef: { current: null },
-                messages: [],
+                messages: [] as Record<string, unknown>[],
                 runIndex: 0,
               },
             };
 
-            // TODO: type properly — tempRefs should match StreamRefs
-            const tempRefs: any = {
+            // tempRefs matches StreamProcessorRefs; tempSubagentStateRefs is already Record<string, TaskRefs>
+            const tempRefs: StreamProcessorRefs = {
+              contentOrderCounterRef: { current: 0 },
+              currentReasoningIdRef: { current: null },
+              currentToolCallIdRef: { current: null },
               subagentStateRefs: tempSubagentStateRefs,
               isReconnect: true, // Suppress Date.now() timestamps so items go straight to accordion zone
             };
@@ -1377,12 +1391,13 @@ export function useChatMessages(
               const eventTurnIndex = event.turn_index;
               if (eventTurnIndex != null && eventTurnIndex !== lastTurnIndex && resumeByTurnIndex.has(eventTurnIndex)) {
                 const resumePoint = resumeByTurnIndex.get(eventTurnIndex);
-                const taskRefsLocal = tempSubagentStateRefs[taskId] as any;
+                const taskRefsLocal = tempSubagentStateRefs[taskId];
 
                 // Finalize the previous run's last assistant message
                 for (let j = taskRefsLocal.messages.length - 1; j >= 0; j--) {
-                  if (taskRefsLocal.messages[j].role === 'assistant' && taskRefsLocal.messages[j].isStreaming) {
-                    taskRefsLocal.messages[j] = { ...taskRefsLocal.messages[j], isStreaming: false };
+                  const taskMsg = taskRefsLocal.messages[j];
+                  if (taskMsg.role === 'assistant' && taskMsg.isStreaming) {
+                    taskRefsLocal.messages[j] = { ...taskMsg, isStreaming: false };
                     break;
                   }
                 }
@@ -1437,7 +1452,7 @@ export function useChatMessages(
                 const result = handleSubagentToolCalls({
                   taskId,
                   assistantMessageId,
-                  toolCalls: event.tool_calls,
+                  toolCalls: event.tool_calls as unknown as Record<string, unknown>[],
                   refs: tempRefs,
                   updateSubagentCard: historyUpdateSubagentCard,
                 });
@@ -1499,14 +1514,16 @@ export function useChatMessages(
                     else if (args > 0) text = t('chat.offloadedArgsNotification', { count: args });
                   }
                   if (text) {
-                    const taskRefsLocal = tempSubagentStateRefs[taskId] as any;
+                    const taskRefsLocal = tempSubagentStateRefs[taskId];
                     const order = ++taskRefsLocal.contentOrderCounterRef.current;
                     // Find the last assistant message and append notification segment
-                    const msgIdx = (taskRefsLocal.messages as any[]).findLastIndex((m: any) => m.role === 'assistant');
+                    const msgIdx = taskRefsLocal.messages.findLastIndex((m) => m.role === 'assistant');
                     if (msgIdx !== -1) {
-                      const msg = { ...taskRefsLocal.messages[msgIdx] };
-                      msg.contentSegments = [...(msg.contentSegments || []), { type: 'notification', content: text, order }];
-                      taskRefsLocal.messages[msgIdx] = msg;
+                      const taskMsg = taskRefsLocal.messages[msgIdx];
+                      if (taskMsg.role === 'assistant') {
+                        const aMsg = taskMsg as unknown as AssistantMessage;
+                        taskRefsLocal.messages[msgIdx] = { ...aMsg, contentSegments: [...(aMsg.contentSegments || []), { type: 'notification' as const, content: text, order }] } as unknown as Record<string, unknown>;
+                      }
                     }
                   }
                 }
@@ -1516,28 +1533,29 @@ export function useChatMessages(
             }
             
             // Get final messages from temp refs
-            const rawMessages = (tempSubagentStateRefs[taskId]?.messages || []) as any[];
+            const rawMessages = tempSubagentStateRefs[taskId]?.messages || [];
 
             // Finalize messages: set isStreaming=false and close open reasoning/tool
             // processes on the last assistant message so SubagentStatusBar shows 'completed'.
-            const finalMessages = rawMessages.map((msg: any) => {
+            const finalMessages = rawMessages.map((msg) => {
               if (msg.role !== 'assistant') return msg;
+              const aMsg = msg as unknown as AssistantMessage;
               // Only finalize the last assistant message (or all, to be safe)
-              const m = { ...msg, isStreaming: false };
+              const m = { ...aMsg, isStreaming: false as const };
               if (m.toolCallProcesses) {
-                const procs = { ...m.toolCallProcesses } as Record<string, any>;
+                const procs = { ...m.toolCallProcesses };
                 for (const [id, proc] of Object.entries(procs)) {
-                  if ((proc as any).isInProgress) {
-                    procs[id] = { ...(proc as any), isInProgress: false, isComplete: true };
+                  if (proc.isInProgress) {
+                    procs[id] = { ...proc, isInProgress: false, isComplete: true };
                   }
                 }
                 m.toolCallProcesses = procs;
               }
               if (m.reasoningProcesses) {
-                const rps = { ...m.reasoningProcesses } as Record<string, any>;
+                const rps = { ...m.reasoningProcesses };
                 for (const [id, rp] of Object.entries(rps)) {
-                  if ((rp as any).isReasoning) {
-                    rps[id] = { ...(rp as any), isReasoning: false, reasoningComplete: true };
+                  if (rp.isReasoning) {
+                    rps[id] = { ...rp, isReasoning: false, reasoningComplete: true };
                   }
                 }
                 m.reasoningProcesses = rps;
@@ -1595,17 +1613,18 @@ export function useChatMessages(
       // Post-process: update inline cards for message_queued actions to show "Updated"
       if (messageQueuedAgentIds.size > 0) {
         setMessages(prev => prev.map(msg => {
-          if (!msg.subagentTasks) return msg;
+          if (msg.role !== 'assistant') return msg;
+          const aMsg = msg as AssistantMessage;
+          if (!aMsg.subagentTasks) return msg;
           let changed = false;
-          const newTasks = { ...(msg.subagentTasks as Record<string, any>) };
+          const newTasks = { ...aMsg.subagentTasks };
           for (const [tcId, task] of Object.entries(newTasks)) {
-            const t = task as any;
-            if (t.resumeTargetId && messageQueuedAgentIds.has(t.resumeTargetId) && t.action === 'resume') {
-              newTasks[tcId] = { ...t, action: 'update' };
+            if (task.resumeTargetId && messageQueuedAgentIds.has(task.resumeTargetId) && task.action === 'resume') {
+              newTasks[tcId] = { ...task, action: 'update' };
               changed = true;
             }
           }
-          return changed ? { ...msg, subagentTasks: newTasks } : msg;
+          return changed ? { ...aMsg, subagentTasks: newTasks } : msg;
         }));
       }
 
@@ -1661,7 +1680,7 @@ export function useChatMessages(
     currentToolCallIdRef.current = null;
 
     {
-      const assistantMessage = createAssistantMessage(assistantMessageId) as unknown as MessageRecord;
+      const assistantMessage = createAssistantMessage(assistantMessageId);
       // Replace trailing empty history assistant message (created by history replay for the
       // in-progress pair) to avoid a duplicate bubble. If the last message is a non-empty
       // history assistant or something else, just append normally.
@@ -1670,14 +1689,14 @@ export function useChatMessages(
           const lastMsg = prev[prev.length - 1];
           if (
             lastMsg.role === 'assistant' &&
-            lastMsg.isHistory &&
-            (!lastMsg.contentSegments || (lastMsg.contentSegments as any[]).length === 0) &&
+            (lastMsg as AssistantMessage).isHistory &&
+            (!(lastMsg as AssistantMessage).contentSegments || (lastMsg as AssistantMessage).contentSegments.length === 0) &&
             !lastMsg.content
           ) {
             return [...prev.slice(0, -1), assistantMessage];
           }
         }
-        return appendMessageRecord(prev,assistantMessage);
+        return appendMessage(prev,assistantMessage);
       });
       currentMessageRef.current = assistantMessageId;
     }
@@ -1688,7 +1707,7 @@ export function useChatMessages(
       currentReasoningIdRef,
       currentToolCallIdRef,
       queuedAtOrderRef,
-      updateTodoListCard,
+      updateTodoListCard: updateTodoListCard || undefined,
       isNewConversation: false,
       subagentStateRefs: subagentStateRefsRef.current,
       updateSubagentCard: updateSubagentCard
@@ -1712,7 +1731,7 @@ export function useChatMessages(
 
       // Mark message as complete
       setMessages((prev) =>
-        updateMessageRecord(prev,assistantMessageId, (msg) => ({
+        updateMessage(prev,assistantMessageId, (msg) => ({
           ...msg,
           isStreaming: false,
         }))
@@ -1764,7 +1783,7 @@ export function useChatMessages(
       // Clean up empty reconnect messages (no content segments = nothing was streamed)
       setMessages((prev) => {
         const msg = prev.find((m) => m.id === assistantMessageId);
-        if (msg && (!msg.contentSegments || (msg.contentSegments as any[]).length === 0) && !msg.content) {
+        if (msg && msg.role === 'assistant' && (!(msg as AssistantMessage).contentSegments || (msg as AssistantMessage).contentSegments.length === 0) && !msg.content) {
           return prev.filter((m) => m.id !== assistantMessageId);
         }
         return prev;
@@ -1931,7 +1950,7 @@ export function useChatMessages(
           currentReasoningIdRef,
           currentToolCallIdRef,
           queuedAtOrderRef,
-          updateTodoListCard,
+          updateTodoListCard: updateTodoListCard || undefined,
           isNewConversation: false,
           subagentStateRefs: subagentStateRefsRef.current,
           updateSubagentCard: updateSubagentCard
@@ -1996,9 +2015,11 @@ export function useChatMessages(
     setMessages((prev) => {
       let anyChanged = false;
       const updated = prev.map((msg) => {
-        if (!msg.subagentTasks || Object.keys(msg.subagentTasks).length === 0) return msg;
+        if (msg.role !== 'assistant') return msg;
+        const aMsg = msg as AssistantMessage;
+        if (!aMsg.subagentTasks || Object.keys(aMsg.subagentTasks).length === 0) return msg;
         let changed = false;
-        const updatedTasks = { ...msg.subagentTasks };
+        const updatedTasks = { ...aMsg.subagentTasks };
         Object.keys(updatedTasks).forEach((toolCallId) => {
           const agentId = toolCallIdToTaskIdMapRef.current.get(toolCallId);
           // If the task still has an open per-task stream, skip it
@@ -2007,13 +2028,13 @@ export function useChatMessages(
             if (activeShortIds.has(shortId)) return;
           }
 
-          if ((updatedTasks as any)[toolCallId].status !== 'completed') {
-            (updatedTasks as any)[toolCallId] = { ...(updatedTasks as any)[toolCallId], status: 'completed' };
+          if (updatedTasks[toolCallId].status !== 'completed') {
+            updatedTasks[toolCallId] = { ...updatedTasks[toolCallId], status: 'completed' };
             changed = true;
           }
         });
         if (changed) anyChanged = true;
-        return changed ? { ...msg, subagentTasks: updatedTasks } : msg;
+        return changed ? { ...aMsg, subagentTasks: updatedTasks } : msg;
       });
       return anyChanged ? updated : prev;
     });
@@ -2107,25 +2128,31 @@ export function useChatMessages(
     if (completePendingTodos) completePendingTodos();
     setMessages((prev) => {
       const msg = prev.find((m) => m.id === assistantMessageId);
-      if (!msg?.todoListProcesses || Object.keys(msg.todoListProcesses as Record<string, any>).length === 0) return prev;
-      const entries = Object.entries(msg.todoListProcesses as Record<string, any>);
-      const lastEntry = entries.reduce((a: [string, any], b: [string, any]) => ((a[1].order || 0) >= (b[1].order || 0) ? a : b));
+      if (!msg || msg.role !== 'assistant') return prev;
+      const aMsg = msg as AssistantMessage;
+      if (!aMsg.todoListProcesses || Object.keys(aMsg.todoListProcesses).length === 0) return prev;
+      const entries = Object.entries(aMsg.todoListProcesses);
+      const lastEntry = entries.reduce((a, b) => ((a[1].order || 0) >= (b[1].order || 0) ? a : b));
       const [lastKey, lastVal] = lastEntry;
-      const hasIncomplete = lastVal.todos?.some((t: any) => t.status !== 'completed');
+      const hasIncomplete = lastVal.todos?.some((todo) => todo.status !== 'completed');
       if (!hasIncomplete) return prev;
-      const completedTodos = lastVal.todos.map((t: any) => ({ ...t, status: 'completed' }));
-      return prev.map((m) => m.id !== assistantMessageId ? m : {
-        ...m,
-        todoListProcesses: {
-          ...(m.todoListProcesses as Record<string, any>),
-          [lastKey]: {
-            ...lastVal,
-            todos: completedTodos,
-            completed: lastVal.total || completedTodos.length,
-            in_progress: 0,
-            pending: 0,
+      const completedTodos = lastVal.todos.map((todo) => ({ ...todo, status: 'completed' as const }));
+      return prev.map((m) => {
+        if (m.id !== assistantMessageId || m.role !== 'assistant') return m;
+        const am = m as AssistantMessage;
+        return {
+          ...am,
+          todoListProcesses: {
+            ...am.todoListProcesses,
+            [lastKey]: {
+              ...lastVal,
+              todos: completedTodos,
+              completed: lastVal.total || completedTodos.length,
+              in_progress: 0,
+              pending: 0,
+            },
           },
-        },
+        };
       });
     });
   };
@@ -2140,7 +2167,7 @@ export function useChatMessages(
    * @returns {Function} Event handler: (event) => void
    */
   // TODO: type properly — refs should use a proper interface matching StreamRefs from streamEventHandlers
-  const createStreamEventProcessor = (assistantMessageId: string, refs: any, getTaskIdFromEvent: (event: SSEEvent) => string | null, wasInterruptedRef: { current: boolean } | null = null) => {
+  const createStreamEventProcessor = (assistantMessageId: string, refs: StreamProcessorRefs, getTaskIdFromEvent: (event: SSEEvent) => string | null, wasInterruptedRef: { current: boolean } | null = null) => {
     // Snapshot of the old assistant message's content order at the time the user
     // sent a queued message.  Used to roll back any content that leaked into the
     // old bubble due to stream-mode multiplexing (custom events can arrive after
@@ -2213,6 +2240,8 @@ export function useChatMessages(
         setMessages((prev) =>
           prev.map((msg) => {
             if (msg.id !== oldAssistantId) return msg;
+            if (msg.role !== 'assistant') return msg;
+            const aMsg = msg as AssistantMessage;
 
             // Use closure-local snapshot or fall back to the shared ref
             // (message_queued only arrives on the secondary POST stream, so
@@ -2222,37 +2251,37 @@ export function useChatMessages(
 
             // If no snapshot, just finalize
             if (effectiveQueuedAtOrder === null) {
-              return { ...msg, isStreaming: false };
+              return { ...aMsg, isStreaming: false };
             }
 
             // Keep only segments at or before the queue point
-            const keptSegments = ((msg.contentSegments || []) as any[]).filter(
-              (s: any) => s.order <= effectiveQueuedAtOrder
+            const keptSegments = (aMsg.contentSegments || []).filter(
+              (s) => s.order <= effectiveQueuedAtOrder
             );
 
             // Rebuild plain-text content from kept text segments
             const keptContent = keptSegments
-              .filter((s: any) => s.type === 'text')
-              .map((s: any) => s.content || '')
+              .filter((s): s is import('@/types/chat').TextSegment => s.type === 'text')
+              .map((s) => s.content || '')
               .join('');
 
             // Collect IDs of kept processes so we can prune orphans
             const keptReasoningIds = new Set(
-              keptSegments.filter((s: any) => s.type === 'reasoning').map((s: any) => s.reasoningId)
+              keptSegments.filter((s): s is import('@/types/chat').ReasoningSegment => s.type === 'reasoning').map((s) => s.reasoningId)
             );
             const keptToolCallIds = new Set(
-              keptSegments.filter((s: any) => s.type === 'tool_call').map((s: any) => s.toolCallId)
+              keptSegments.filter((s): s is import('@/types/chat').ToolCallSegment => s.type === 'tool_call').map((s) => s.toolCallId)
             );
             const keptTodoListIds = new Set(
-              keptSegments.filter((s: any) => s.type === 'todo_list').map((s: any) => s.todoListId)
+              keptSegments.filter((s): s is import('@/types/chat').TodoListSegment => s.type === 'todo_list').map((s) => s.todoListId)
             );
             const keptSubagentIds = new Set(
-              keptSegments.filter((s: any) => s.type === 'subagent_task').map((s: any) => s.subagentId)
+              keptSegments.filter((s): s is import('@/types/chat').SubagentTaskSegment => s.type === 'subagent_task').map((s) => s.subagentId)
             );
 
-            const filterObj = (obj: any, keepSet: Set<string>) => {
-              if (!obj) return {};
-              const out: Record<string, any> = {};
+            const filterObj = <V>(obj: Record<string, V> | undefined, keepSet: Set<string>): Record<string, V> => {
+              if (!obj) return {} as Record<string, V>;
+              const out: Record<string, V> = {};
               for (const [id, val] of Object.entries(obj)) {
                 if (keepSet.has(id)) out[id] = val;
               }
@@ -2260,13 +2289,13 @@ export function useChatMessages(
             };
 
             return {
-              ...msg,
+              ...aMsg,
               contentSegments: keptSegments,
               content: keptContent,
-              reasoningProcesses: filterObj(msg.reasoningProcesses, keptReasoningIds),
-              toolCallProcesses: filterObj(msg.toolCallProcesses, keptToolCallIds),
-              todoListProcesses: filterObj(msg.todoListProcesses, keptTodoListIds),
-              subagentTasks: filterObj(msg.subagentTasks, keptSubagentIds),
+              reasoningProcesses: filterObj(aMsg.reasoningProcesses, keptReasoningIds),
+              toolCallProcesses: filterObj(aMsg.toolCallProcesses, keptToolCallIds),
+              todoListProcesses: filterObj(aMsg.todoListProcesses, keptTodoListIds),
+              subagentTasks: filterObj(aMsg.subagentTasks, keptSubagentIds),
               isStreaming: false,
             };
           })
@@ -2277,23 +2306,23 @@ export function useChatMessages(
         // 2. Mark queued user messages as delivered, OR create them from event
         //    data if none exist (reconnect scenario — in-memory state was lost).
         setMessages((prev) => {
-          const hasQueuedMessages = prev.some((msg) => msg.queued);
+          const hasQueuedMessages = prev.some((msg) => 'queued' in msg && msg.queued);
           if (hasQueuedMessages) {
             // Live path: mark existing queued messages as delivered
             return prev.map((msg) =>
-              msg.queued ? { ...msg, queued: false, queueDelivered: true } : msg
+              'queued' in msg && msg.queued ? { ...msg, queued: false, queueDelivered: true } : msg
             );
           }
           // Reconnect path: create user bubbles from event payload
-          const queuedMsgs = ((event.messages || []) as any[]).filter((qMsg: any) => qMsg.content);
+          const queuedMsgs = (event.messages || []).filter((qMsg) => qMsg.content);
           if (queuedMsgs.length === 0) return prev;
-          const newUserMessages = queuedMsgs.map((qMsg: any) => ({
+          const newUserMessages: MessageRecord[] = queuedMsgs.map((qMsg) => ({
             id: `queued-user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            role: 'user',
-            content: qMsg.content,
-            contentType: 'text',
+            role: 'user' as const,
+            content: qMsg.content as string,
+            contentType: 'text' as const,
             timestamp: qMsg.timestamp ? new Date((qMsg.timestamp as number) * 1000) : new Date(),
-            isStreaming: false,
+            isStreaming: false as const,
             queueDelivered: true,
           }));
           return [...prev, ...newUserMessages];
@@ -2301,8 +2330,8 @@ export function useChatMessages(
 
         // 3. Create new assistant message placeholder
         const newAssistantId = `assistant-${Date.now()}`;
-        const newAssistant = createAssistantMessage(newAssistantId) as unknown as MessageRecord;
-        setMessages((prev) => appendMessageRecord(prev,newAssistant));
+        const newAssistant = createAssistantMessage(newAssistantId);
+        setMessages((prev) => appendMessage(prev,newAssistant));
 
         // 4. Switch closure & refs to new assistant message
         assistantMessageId = newAssistantId;
@@ -2321,7 +2350,7 @@ export function useChatMessages(
         const returnedMessages = event.messages || [];
         if (returnedMessages.length > 0) {
           // Remove queued user messages from the chat
-          setMessages((prev) => prev.filter((msg) => !msg.queued));
+          setMessages((prev) => prev.filter((msg) => !('queued' in msg && msg.queued)));
           // Restore the text to the input box via state
           const combinedText = returnedMessages.map((m) => m.content).join('\n');
           setReturnedQueuedMessage(combinedText);
@@ -2352,12 +2381,12 @@ export function useChatMessages(
               const taskRefs = getOrCreateTaskRefs(refs, taskId);
               const order = ++taskRefs.contentOrderCounterRef.current;
               // Find the last assistant message and append the notification segment
-              const updatedMessages = [...taskRefs.messages] as any[];
-              const msgIdx = updatedMessages.findLastIndex((m: any) => m.role === 'assistant');
+              const updatedMessages = [...taskRefs.messages] as Record<string, unknown>[];
+              const msgIdx = updatedMessages.findLastIndex((m) => m.role === 'assistant');
               if (msgIdx !== -1) {
-                const msg = { ...updatedMessages[msgIdx] };
-                msg.contentSegments = [...(msg.contentSegments || []), { type: 'notification', content: text, order }];
-                updatedMessages[msgIdx] = msg;
+                const existingMsg = updatedMessages[msgIdx];
+                const segs = (existingMsg.contentSegments || []) as Record<string, unknown>[];
+                updatedMessages[msgIdx] = { ...existingMsg, contentSegments: [...segs, { type: 'notification', content: text, order }] };
               }
               taskRefs.messages = updatedMessages;
               updateSubagentCard(taskId, { messages: updatedMessages });
@@ -2369,7 +2398,7 @@ export function useChatMessages(
           getMsgId: () => currentMessageRef.current,
           nextOrder: () => {
             const eventId = event._eventId;
-            return eventId != null ? eventId : ++refs.contentOrderCounterRef.current;
+            return eventId != null ? Number(eventId) : ++refs.contentOrderCounterRef.current;
           },
           setMessages,
           setTokenUsage,
@@ -2414,7 +2443,7 @@ export function useChatMessages(
             handleSubagentToolCallChunks({
               taskId,
               assistantMessageId: subagentAssistantMessageId,
-              chunks: event.tool_call_chunks as any[],
+              chunks: (event.tool_call_chunks || []) as unknown as Record<string, unknown>[],
               refs,
               updateSubagentCard,
             });
@@ -2422,7 +2451,7 @@ export function useChatMessages(
             handleSubagentToolCalls({
               taskId,
               assistantMessageId: subagentAssistantMessageId,
-              toolCalls: event.tool_calls as any[],
+              toolCalls: (event.tool_calls || []) as unknown as Record<string, unknown>[],
               refs,
               updateSubagentCard,
             });
@@ -2485,7 +2514,7 @@ export function useChatMessages(
             assistantMessageId,
             signalContent,
             refs,
-            setMessages,
+            setMessages: setMessagesForHandlers,
             eventId,
           })) {
             return;
@@ -2498,7 +2527,7 @@ export function useChatMessages(
             assistantMessageId,
             content: event.content as string,
             refs,
-            setMessages,
+            setMessages: setMessagesForHandlers,
           })) {
             return;
           }
@@ -2511,7 +2540,7 @@ export function useChatMessages(
             content: event.content as string,
             finishReason: event.finish_reason,
             refs,
-            setMessages,
+            setMessages: setMessagesForHandlers,
             eventId,
           })) {
             return;
@@ -2524,7 +2553,7 @@ export function useChatMessages(
         const errorMessage = event.error || event.message || 'An error occurred while processing your request.';
         setMessageError(errorMessage);
         setMessages((prev) =>
-          updateMessageRecord(prev,assistantMessageId, (msg) => ({
+          updateMessage(prev,assistantMessageId, (msg) => ({
             ...msg,
             content: msg.content || errorMessage,
             contentType: 'text',
@@ -2535,8 +2564,8 @@ export function useChatMessages(
       } else if (eventType === 'tool_call_chunks') {
         handleToolCallChunks({
           assistantMessageId,
-          chunks: event.tool_call_chunks as any[],
-          setMessages,
+          chunks: (event.tool_call_chunks || []) as unknown as Record<string, unknown>[],
+          setMessages: setMessagesForHandlers,
         });
         return;
       } else if (eventType === 'artifact') {
@@ -2550,14 +2579,14 @@ export function useChatMessages(
             artifactId: event.artifact_id as string,
             payload: event.payload || {},
             refs,
-            setMessages,
+            setMessages: setMessagesForHandlers,
             eventId: event._eventId as number,
           });
           console.log('[Stream] handleTodoUpdate result:', result);
         } else if (artifactType === 'file_operation' && onFileArtifact) {
           onFileArtifact(event);
         } else if (artifactType === 'task') {
-          const payload = (event.payload || {}) as Record<string, any>;
+          const payload = (event.payload || {}) as Record<string, unknown>;
           const { task_id, action: rawAction, description, prompt, type } = payload;
           const action = (() => { if (rawAction === 'spawned') return 'init'; if (rawAction === 'message_queued') return 'update'; if (rawAction === 'resumed') return 'resume'; return rawAction || 'init'; })() as string;
           if (!task_id) return;
@@ -2592,7 +2621,7 @@ export function useChatMessages(
             const taskRefsForResume = getOrCreateTaskRefs(refs, agentId);
 
             // Finalize the last assistant message from the previous run
-            const updatedMessages = [...taskRefsForResume.messages] as any[];
+            const updatedMessages = [...taskRefsForResume.messages] as Record<string, unknown>[];
             for (let i = updatedMessages.length - 1; i >= 0; i--) {
               if (updatedMessages[i].role === 'assistant' && updatedMessages[i].isStreaming) {
                 updatedMessages[i] = { ...updatedMessages[i], isStreaming: false };
@@ -2651,17 +2680,18 @@ export function useChatMessages(
             }
             // Update inline card to show "Updated" instead of "Resumed"
             setMessages(prev => prev.map(msg => {
-              if (!msg.subagentTasks) return msg;
+              if (msg.role !== 'assistant') return msg;
+              const aMsg = msg as AssistantMessage;
+              if (!aMsg.subagentTasks) return msg;
               let changed = false;
-              const newTasks = { ...(msg.subagentTasks as Record<string, any>) };
+              const newTasks = { ...aMsg.subagentTasks };
               for (const [tcId, task] of Object.entries(newTasks)) {
-                const t = task as any;
-                if (t.resumeTargetId === agentId && t.action === 'resume') {
-                  newTasks[tcId] = { ...t, action: 'update' };
+                if (task.resumeTargetId === agentId && task.action === 'resume') {
+                  newTasks[tcId] = { ...task, action: 'update' };
                   changed = true;
                 }
               }
-              return changed ? { ...msg, subagentTasks: newTasks } : msg;
+              return changed ? { ...aMsg, subagentTasks: newTasks } : msg;
             }));
           }
         }
@@ -2669,17 +2699,17 @@ export function useChatMessages(
       } else if (eventType === 'tool_calls') {
         handleToolCalls({
           assistantMessageId,
-          toolCalls: event.tool_calls as any[],
+          toolCalls: (event.tool_calls || []) as unknown as Record<string, unknown>[],
           finishReason: event.finish_reason,
           refs,
-          setMessages,
+          setMessages: setMessagesForHandlers,
           eventId: event._eventId as number,
         });
         // Queue new Task tool call IDs for matching with upcoming artifact 'spawned' events
         if (event.tool_calls) {
           for (const tc of event.tool_calls) {
-            if (((tc as any).name === 'task' || (tc as any).name === 'Task') && (tc as any).id && !(tc as any).args?.task_id) {
-              pendingTaskToolCallIds.push((tc as any).id);
+            if ((tc.name === 'task' || tc.name === 'Task') && tc.id && !tc.args?.task_id) {
+              pendingTaskToolCallIds.push(tc.id);
             }
           }
         }
@@ -2702,7 +2732,7 @@ export function useChatMessages(
             }
             const proposalId = matched.proposalId!;
             setMessages((prev) =>
-              updateMessageRecord(prev,matched.assistantMessageId, (m) => { const msg = m as any; return {
+              updateMessage(prev,matched.assistantMessageId, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
                 ...msg,
                 [dataKey]: {
                   ...(msg[dataKey] || {}),
@@ -2742,7 +2772,7 @@ export function useChatMessages(
             artifact: event.artifact,
           },
           refs,
-          setMessages,
+          setMessages: setMessagesForHandlers,
         });
 
         // When onboarding-related tools succeed, sync onboarding_completed via PUT
@@ -2766,11 +2796,11 @@ export function useChatMessages(
         if (actionType === 'ask_user_question') {
           // --- User question interrupt ---
           const questionId = event.interrupt_id || `question-${Date.now()}`;
-          const questionData = actionRequests[0] as Record<string, any>;
-          const order = event._eventId != null ? event._eventId : ++refs.contentOrderCounterRef.current;
+          const questionData = actionRequests[0];
+          const order = event._eventId != null ? Number(event._eventId) : ++refs.contentOrderCounterRef.current;
 
           setMessages((prev) =>
-            updateMessageRecord(prev,assistantMessageId, (m) => { const msg = m as any; return {
+            updateMessage(prev,assistantMessageId, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
               ...msg,
               contentSegments: [
                 ...(msg.contentSegments || []),
@@ -2801,11 +2831,11 @@ export function useChatMessages(
         } else if (actionType === 'create_workspace') {
           // --- Create workspace interrupt ---
           const proposalId = event.interrupt_id || `workspace-${Date.now()}`;
-          const proposalData = actionRequests[0] as Record<string, any>;
-          const order = event._eventId != null ? event._eventId : ++refs.contentOrderCounterRef.current;
+          const proposalData = actionRequests[0];
+          const order = event._eventId != null ? Number(event._eventId) : ++refs.contentOrderCounterRef.current;
 
           setMessages((prev) =>
-            updateMessageRecord(prev,assistantMessageId, (m) => { const msg = m as any; return {
+            updateMessage(prev,assistantMessageId, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
               ...msg,
               contentSegments: [
                 ...(msg.contentSegments || []),
@@ -2834,11 +2864,11 @@ export function useChatMessages(
         } else if (actionType === 'start_question') {
           // --- Start question interrupt ---
           const proposalId = event.interrupt_id || `question-start-${Date.now()}`;
-          const proposalData = actionRequests[0] as Record<string, any>;
-          const order = event._eventId != null ? event._eventId : ++refs.contentOrderCounterRef.current;
+          const proposalData = actionRequests[0];
+          const order = event._eventId != null ? Number(event._eventId) : ++refs.contentOrderCounterRef.current;
 
           setMessages((prev) =>
-            updateMessageRecord(prev,assistantMessageId, (m) => { const msg = m as any; return {
+            updateMessage(prev,assistantMessageId, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
               ...msg,
               contentSegments: [
                 ...(msg.contentSegments || []),
@@ -2868,14 +2898,14 @@ export function useChatMessages(
           // --- Plan approval interrupt (existing) ---
           const planApprovalId = event.interrupt_id || `plan-${Date.now()}`;
           const description =
-            (actionRequests[0] as any)?.description ||
-            (actionRequests[0] as any)?.args?.plan ||
+            actionRequests[0]?.description ||
+            (actionRequests[0]?.args?.plan as string) ||
             'No plan description provided.';
 
-          const order = event._eventId != null ? event._eventId : ++refs.contentOrderCounterRef.current;
+          const order = event._eventId != null ? Number(event._eventId) : ++refs.contentOrderCounterRef.current;
 
           setMessages((prev) =>
-            updateMessageRecord(prev,assistantMessageId, (m) => { const msg = m as any; return {
+            updateMessage(prev,assistantMessageId, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
               ...msg,
               contentSegments: [
                 ...(msg.contentSegments || []),
@@ -2900,7 +2930,7 @@ export function useChatMessages(
             threadId: event.thread_id,
             assistantMessageId,
             planApprovalId,
-            planMode: actionRequests.some((r: any) => r.name === 'SubmitPlan') || currentPlanModeRef.current,
+            planMode: actionRequests.some((r) => r.name === 'SubmitPlan') || currentPlanModeRef.current,
           });
         }
 
@@ -2920,10 +2950,10 @@ export function useChatMessages(
    */
   const handleSendQueuedMessage = async (message: string, planMode: boolean = false, additionalContext: Record<string, unknown>[] | null = null, attachmentMeta: Record<string, unknown>[] | null = null) => {
     // Show user message in chat with queued indicator
-    const userMessage = createUserMessage(message, attachmentMeta as any) as unknown as MessageRecord;
-    userMessage.queued = true;
-    recentlySentTrackerRef.current.track(message.trim(), userMessage.timestamp as Date, userMessage.id as string);
-    setMessages((prev) => appendMessageRecord(prev,userMessage));
+    const userMsg = createUserMessage(message, attachmentMeta as AttachmentMeta[] | null);
+    const userMessage: MessageRecord = { ...userMsg, queued: true };
+    recentlySentTrackerRef.current.track(message.trim(), userMessage.timestamp, userMessage.id);
+    setMessages((prev) => appendMessage(prev,userMessage));
 
     try {
       // Send to same endpoint — backend will auto-queue and return message_queued SSE
@@ -2941,7 +2971,7 @@ export function useChatMessages(
             queuedAtOrderRef.current = contentOrderCounterRef.current;
             // Update the user message to reflect queued status
             setMessages((prev) =>
-              updateMessageRecord(prev,userMessage.id as string, (msg) => ({
+              updateMessage(prev,userMessage.id as string, (msg) => ({
                 ...msg,
                 queued: true,
                 queuePosition: event.position,
@@ -2949,14 +2979,14 @@ export function useChatMessages(
             );
           }
         },
-        additionalContext as any,
+        additionalContext,
         agentMode
       );
     } catch (err: unknown) {
       console.error('Error queuing message:', err);
       // Update user message to show queue failure
       setMessages((prev) =>
-        updateMessageRecord(prev,userMessage.id as string, (msg) => ({
+        updateMessage(prev,userMessage.id as string, (msg) => ({
           ...msg,
           queued: false,
           queueError: (err as Error).message || 'Failed to queue message',
@@ -2996,9 +3026,9 @@ export function useChatMessages(
       setPendingRejection(null);
 
       // Show user message in chat
-      const userMsg = createUserMessage(message) as unknown as MessageRecord;
-      recentlySentTrackerRef.current.track(message.trim(), userMsg.timestamp as Date, userMsg.id as string);
-      setMessages((prev) => appendMessageRecord(prev,userMsg));
+      const userMsg = createUserMessage(message);
+      recentlySentTrackerRef.current.track(message.trim(), userMsg.timestamp, userMsg.id);
+      setMessages((prev) => appendMessage(prev,userMsg));
 
       // Send as rejection feedback via hitl_response
       const hitlResponse = {
@@ -3010,8 +3040,8 @@ export function useChatMessages(
     }
 
     // Create and add user message
-    const userMessage = createUserMessage(message, attachmentMeta as any) as unknown as MessageRecord;
-    recentlySentTrackerRef.current.track(message.trim(), userMessage.timestamp as Date, userMessage.id as string);
+    const userMessage = createUserMessage(message, attachmentMeta as AttachmentMeta[] | null);
+    recentlySentTrackerRef.current.track(message.trim(), userMessage.timestamp, userMessage.id);
 
     // Check if this is a new conversation
     // Only consider it a new conversation if:
@@ -3030,7 +3060,7 @@ export function useChatMessages(
 
     // Add user message after history messages
     setMessages((prev) => {
-      const newMessages = appendMessageRecord(prev,userMessage);
+      const newMessages = appendMessage(prev,userMessage);
       // Update new messages start index if this is the first new message
       if (newMessagesStartIndexRef.current === prev.length) {
         newMessagesStartIndexRef.current = newMessages.length;
@@ -3052,11 +3082,11 @@ export function useChatMessages(
     currentReasoningIdRef.current = null;
     currentToolCallIdRef.current = null;
 
-    const assistantMessage = createAssistantMessage(assistantMessageId) as unknown as MessageRecord;
+    const assistantMessage = createAssistantMessage(assistantMessageId);
 
     // Add assistant message after history messages
     setMessages((prev) => {
-      const newMessages = appendMessageRecord(prev,assistantMessage);
+      const newMessages = appendMessage(prev,assistantMessage);
       // Update new messages start index
       newMessagesStartIndexRef.current = newMessages.length;
       return newMessages;
@@ -3072,7 +3102,7 @@ export function useChatMessages(
         currentReasoningIdRef,
         currentToolCallIdRef,
         queuedAtOrderRef,
-        updateTodoListCard,
+        updateTodoListCard: updateTodoListCard || undefined,
         isNewConversation: isNewConversationRef.current,
         subagentStateRefs: subagentStateRefsRef.current,
         updateSubagentCard: updateSubagentCard || (() => {}),
@@ -3088,7 +3118,7 @@ export function useChatMessages(
         [],
         planMode,
         processEvent,
-        additionalContext as any,
+        additionalContext,
         agentMode,
         undefined, undefined, undefined, undefined,
         model || null,
@@ -3107,7 +3137,7 @@ export function useChatMessages(
       {
         const finalId = currentMessageRef.current || assistantMessageId;
         setMessages((prev) =>
-          updateMessageRecord(prev,finalId, (msg) => ({
+          updateMessage(prev,finalId, (msg) => ({
             ...msg,
             isStreaming: false,
           }))
@@ -3115,20 +3145,21 @@ export function useChatMessages(
       }
     } catch (err: unknown) {
           // Handle rate limit (429) — show limit message and remove optimistic assistant message
-          if ((err as any).status === 429) {
-            const info = (err as any).rateLimitInfo || {};
+          const errObj = err as Record<string, unknown>;
+          if (errObj.status === 429) {
+            const info = (errObj.rateLimitInfo || {}) as Record<string, unknown>;
             const limitMsg = info.type === 'credit_limit'
               ? `Daily credit limit reached (${info.used_credits}/${info.credit_limit} credits). Resets at midnight UTC.`
               : info.type === 'workspace_limit'
                 ? `Active workspace limit reached (${info.current}/${info.limit}).`
-                : info.message || 'Rate limit exceeded. Please try again later.';
+                : (info.message as string) || 'Rate limit exceeded. Please try again later.';
             setMessageError(limitMsg);
             setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
           } else {
             console.error('Error sending message:', err);
             setMessageError((err as Error).message || 'Failed to send message');
             setMessages((prev) =>
-              updateMessageRecord(prev,assistantMessageId, (msg) => ({
+              updateMessage(prev,assistantMessageId, (msg) => ({
                 ...msg,
                 content: msg.content || 'Failed to send message. Please try again.',
                 isStreaming: false,
@@ -3141,7 +3172,7 @@ export function useChatMessages(
             // Mark message as complete (use live ref in case queued_message_injected switched it)
             const finalId = currentMessageRef.current || assistantMessageId;
             setMessages((prev) =>
-              updateMessageRecord(prev,finalId, (msg) => ({
+              updateMessage(prev,finalId, (msg) => ({
                 ...msg,
                 isStreaming: false,
               }))
@@ -3167,8 +3198,8 @@ export function useChatMessages(
     currentReasoningIdRef.current = null;
     currentToolCallIdRef.current = null;
 
-    const assistantMessage = createAssistantMessage(assistantMessageId) as unknown as MessageRecord;
-    setMessages((prev) => appendMessageRecord(prev,assistantMessage));
+    const assistantMessage = createAssistantMessage(assistantMessageId);
+    setMessages((prev) => appendMessage(prev, assistantMessage));
     currentMessageRef.current = assistantMessageId;
 
     setIsLoading(true);
@@ -3181,7 +3212,7 @@ export function useChatMessages(
       currentReasoningIdRef,
       currentToolCallIdRef,
       queuedAtOrderRef,
-      updateTodoListCard,
+      updateTodoListCard: updateTodoListCard || undefined,
       isNewConversation: false,
       subagentStateRefs: subagentStateRefsRef.current,
       updateSubagentCard: updateSubagentCard || (() => {}),
@@ -3198,7 +3229,7 @@ export function useChatMessages(
         hitlResponse,
         processEvent,
         planMode,
-        lastModelOptionsRef.current as any,
+        lastModelOptionsRef.current as { model?: string; reasoningEffort?: string; fastMode?: boolean },
         agentMode
       );
 
@@ -3213,7 +3244,7 @@ export function useChatMessages(
       {
         const finalId = currentMessageRef.current || assistantMessageId;
         setMessages((prev) =>
-          updateMessageRecord(prev,finalId, (msg) => ({
+          updateMessage(prev,finalId, (msg) => ({
             ...msg,
             isStreaming: false,
           }))
@@ -3223,7 +3254,7 @@ export function useChatMessages(
       console.error('[HITL] Error resuming workflow:', err);
       setMessageError((err as Error).message || 'Failed to resume workflow');
       setMessages((prev) =>
-        updateMessageRecord(prev,assistantMessageId, (msg) => ({
+        updateMessage(prev,assistantMessageId, (msg) => ({
           ...msg,
           content: msg.content || 'Failed to resume workflow. Please try again.',
           isStreaming: false,
@@ -3246,7 +3277,7 @@ export function useChatMessages(
 
     // Update plan card status to "approved"
     setMessages((prev) =>
-      updateMessageRecord(prev,assistantMessageId!, (m) => { const msg = m as any; return {
+      updateMessage(prev,assistantMessageId!, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
         ...msg,
         planApprovals: {
           ...(msg.planApprovals || {}),
@@ -3271,7 +3302,7 @@ export function useChatMessages(
 
     // Update plan card status to "rejected"
     setMessages((prev) =>
-      updateMessageRecord(prev,assistantMessageId!, (m) => { const msg = m as any; return {
+      updateMessage(prev,assistantMessageId!, (m) => { if (m.role !== 'assistant') return m; const msg = m as AssistantMessage; return {
         ...msg,
         planApprovals: {
           ...(msg.planApprovals || {}),
@@ -3294,7 +3325,8 @@ export function useChatMessages(
     // Optimistically mark the card as answered
     setMessages((prev) =>
       prev.map((m) => {
-        const msg = m as any;
+        if (m.role !== 'assistant') return m;
+        const msg = m as AssistantMessage;
         if (!msg.userQuestions?.[questionId]) return m;
         return {
           ...msg,
@@ -3328,7 +3360,8 @@ export function useChatMessages(
     // Mark the card as skipped
     setMessages((prev) =>
       prev.map((m) => {
-        const msg = m as any;
+        if (m.role !== 'assistant') return m;
+        const msg = m as AssistantMessage;
         if (!msg.userQuestions?.[questionId]) return m;
         return {
           ...msg,
@@ -3362,7 +3395,8 @@ export function useChatMessages(
 
     setMessages((prev) =>
       prev.map((m) => {
-        const msg = m as any;
+        if (m.role !== 'assistant') return m;
+        const msg = m as AssistantMessage;
         if (!msg.workspaceProposals?.[pid]) return m;
         return {
           ...msg,
@@ -3390,7 +3424,8 @@ export function useChatMessages(
 
     setMessages((prev) =>
       prev.map((m) => {
-        const msg = m as any;
+        if (m.role !== 'assistant') return m;
+        const msg = m as AssistantMessage;
         if (!msg.workspaceProposals?.[pid]) return m;
         return {
           ...msg,
@@ -3418,7 +3453,8 @@ export function useChatMessages(
 
     setMessages((prev) =>
       prev.map((m) => {
-        const msg = m as any;
+        if (m.role !== 'assistant') return m;
+        const msg = m as AssistantMessage;
         if (!msg.questionProposals?.[pid]) return m;
         return {
           ...msg,
@@ -3446,7 +3482,8 @@ export function useChatMessages(
 
     setMessages((prev) =>
       prev.map((m) => {
-        const msg = m as any;
+        if (m.role !== 'assistant') return m;
+        const msg = m as AssistantMessage;
         if (!msg.questionProposals?.[pid]) return m;
         return {
           ...msg,
@@ -3468,7 +3505,7 @@ export function useChatMessages(
   }, [pendingInterrupt, resumeWithHitlResponse]);
 
   const insertNotification = useCallback((text: string, variant: 'info' | 'success' | 'warning' = 'info') => {
-    setMessages((prev) => appendMessageRecord(prev,createNotificationMessage(text, variant) as unknown as MessageRecord));
+    setMessages((prev) => appendMessage(prev, createNotificationMessage(text, variant)));
   }, []);
 
   // =====================================================================
@@ -3514,11 +3551,11 @@ export function useChatMessages(
     currentReasoningIdRef.current = null;
     currentToolCallIdRef.current = null;
 
-    const assistantMessage = createAssistantMessage(assistantMessageId) as unknown as MessageRecord;
-    const userMessage = message ? createUserMessage(message) as unknown as MessageRecord : null;
+    const assistantMessage = createAssistantMessage(assistantMessageId);
+    const userMessage = message ? createUserMessage(message) : null;
 
     if (userMessage) {
-      recentlySentTrackerRef.current.track(message!.trim(), userMessage.timestamp as Date, userMessage.id as string);
+      recentlySentTrackerRef.current.track(message!.trim(), userMessage.timestamp, userMessage.id);
     }
 
     setMessages((prev) => {
@@ -3542,7 +3579,7 @@ export function useChatMessages(
         currentReasoningIdRef,
         currentToolCallIdRef,
         queuedAtOrderRef,
-        updateTodoListCard,
+        updateTodoListCard: updateTodoListCard || undefined,
         isNewConversation: false,
         subagentStateRefs: subagentStateRefsRef.current,
         updateSubagentCard: updateSubagentCard || (() => {}),
@@ -3575,7 +3612,7 @@ export function useChatMessages(
 
       const finalId = currentMessageRef.current || assistantMessageId;
       setMessages((prev) =>
-        updateMessageRecord(prev,finalId, (msg) => ({
+        updateMessage(prev,finalId, (msg) => ({
           ...msg,
           isStreaming: false,
         }))
@@ -3584,7 +3621,7 @@ export function useChatMessages(
       console.error('[streamFromCheckpoint] Error:', err);
       setMessageError((err as Error).message || 'Failed to process request');
       setMessages((prev) =>
-        updateMessageRecord(prev,assistantMessageId, (msg) => ({
+        updateMessage(prev,assistantMessageId, (msg) => ({
           ...msg,
           content: msg.content || 'Failed to process request. Please try again.',
           isStreaming: false,
@@ -3595,7 +3632,7 @@ export function useChatMessages(
       if (!wasDisconnected && !wasInterruptedRef.current) {
         const finalId = currentMessageRef.current || assistantMessageId;
         setMessages((prev) =>
-          updateMessageRecord(prev,finalId, (msg) => ({
+          updateMessage(prev,finalId, (msg) => ({
             ...msg,
             isStreaming: false,
           }))
@@ -3677,7 +3714,7 @@ export function useChatMessages(
     }
 
     // Find the last error message and truncate from there
-    const lastErrorIndex = (messages as any[]).findLastIndex((m: any) => m.error);
+    const lastErrorIndex = messages.findLastIndex((m) => m.role === 'assistant' && (m as AssistantMessage).error);
     const truncateIndex = lastErrorIndex !== -1 ? lastErrorIndex : messages.length;
 
     // Retry overwrites the last turn

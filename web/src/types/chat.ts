@@ -35,12 +35,47 @@ export interface SubagentTaskSegment {
   resumeTargetId?: string;
 }
 
+export interface NotificationSegment {
+  type: 'notification';
+  content: string;
+  order: number;
+}
+
+export interface UserQuestionSegment {
+  type: 'user_question';
+  questionId: string;
+  order: number;
+}
+
+export interface CreateWorkspaceSegment {
+  type: 'create_workspace';
+  proposalId: string;
+  order: number;
+}
+
+export interface StartQuestionSegment {
+  type: 'start_question';
+  proposalId: string;
+  order: number;
+}
+
+export interface PlanApprovalSegment {
+  type: 'plan_approval';
+  planApprovalId: string;
+  order: number;
+}
+
 export type ContentSegment =
   | ReasoningSegment
   | TextSegment
   | ToolCallSegment
   | TodoListSegment
-  | SubagentTaskSegment;
+  | SubagentTaskSegment
+  | NotificationSegment
+  | UserQuestionSegment
+  | CreateWorkspaceSegment
+  | StartQuestionSegment
+  | PlanApprovalSegment;
 
 // --- Process Records ---
 
@@ -93,6 +128,44 @@ export interface PendingToolCallChunk {
   firstSeenAt: number;
 }
 
+// --- HITL Interrupt State Records ---
+
+export interface PlanApprovalState {
+  status: string;
+  description?: string;
+  planApprovalId?: string;
+  interruptId?: string;
+}
+
+export interface UserQuestionState {
+  questionId?: string;
+  question?: string;
+  answered?: boolean;
+  skipped?: boolean;
+  answer?: string | null;
+  options?: string[];
+  allow_multiple?: boolean;
+  interruptId?: string;
+  status?: string;
+}
+
+export interface WorkspaceProposalState {
+  proposalId?: string;
+  status: string;
+  question?: string;
+  workspace_name?: string;
+  workspace_description?: string;
+  interruptId?: string;
+}
+
+export interface QuestionProposalState {
+  proposalId?: string;
+  status: string;
+  workspace_id?: string;
+  question?: string;
+  interruptId?: string;
+}
+
 // --- Chat Messages ---
 
 export interface UserMessage {
@@ -105,6 +178,7 @@ export interface UserMessage {
   isHistory?: boolean;
   attachments?: Attachment[];
   queueDelivered?: boolean;
+  queued?: boolean;
 }
 
 export interface AssistantMessage {
@@ -121,6 +195,15 @@ export interface AssistantMessage {
   todoListProcesses?: Record<string, TodoListProcess>;
   subagentTasks?: Record<string, SubagentTask>;
   pendingToolCallChunks?: Record<string, PendingToolCallChunk>;
+  // HITL interrupt state
+  planApprovals?: Record<string, PlanApprovalState>;
+  userQuestions?: Record<string, UserQuestionState>;
+  workspaceProposals?: Record<string, WorkspaceProposalState>;
+  questionProposals?: Record<string, QuestionProposalState>;
+  // Runtime flags
+  queued?: boolean;
+  queueDelivered?: boolean;
+  error?: boolean | string;
 }
 
 export type NotificationVariant = 'info' | 'success' | 'warning';

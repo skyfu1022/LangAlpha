@@ -198,7 +198,7 @@ export async function sendChatMessageStream(
   messageHistory: Array<{ role: string; content: string }> = [],
   planMode: boolean = false,
   onEvent: (event: Record<string, unknown>) => void = () => {},
-  additionalContext: string | null = null,
+  additionalContext: Record<string, unknown>[] | string | null = null,
   agentMode: string = 'ptc',
   locale: string = 'en-US',
   timezone: string = 'America/New_York',
