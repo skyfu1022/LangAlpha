@@ -383,7 +383,7 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
     let cancelled = false;
     getWorkspace(workspaceId).then((ws: WorkspaceRecord) => {
       if (cancelled) return;
-      if (ws?.status === 'flash') setAgentMode('flash');
+      if (ws?.status === 'flash' && !state?.agentMode) setAgentMode('flash');
       if (ws?.name && !workspaceName) setWorkspaceName(ws.name);
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -411,10 +411,11 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
   }, [queryClient]);
 
   // Navigate to a newly created workspace with an optional starter question
+  // Always PTC mode — start_question creates a sandbox-backed workspace
   const handleWorkspaceCreated = useCallback(({ workspaceId: newWsId, question }: { workspaceId?: string; question?: string }) => {
     if (!newWsId) return;
     const path = `/chat/t/__default__`;
-    const navState = { workspaceId: newWsId, ...(question ? { initialMessage: question } : {}) };
+    const navState = { workspaceId: newWsId, agentMode: 'ptc', ...(question ? { initialMessage: question } : {}) };
     navigate(path, { state: navState });
   }, [navigate]);
 

@@ -77,16 +77,14 @@ function ChatAgent(): React.ReactElement | null {
     }
   }, [threadId, resolvedWorkspaceId, navigate]);
 
-  // Reset resolved workspace when URL params change (e.g., navigating between views)
-  useEffect(() => {
-    if (urlWorkspaceId) {
-      setResolvedWorkspaceId(urlWorkspaceId);
-    } else if (state?.workspaceId) {
-      setResolvedWorkspaceId(state.workspaceId);
-    }
-  }, [urlWorkspaceId, state?.workspaceId]);
+  // Sync resolvedWorkspaceId when URL params or location state change
+  // Use synchronous update to avoid stale workspace on first render after navigation
+  const incomingWsId = urlWorkspaceId || state?.workspaceId || null;
+  if (incomingWsId && incomingWsId !== resolvedWorkspaceId) {
+    setResolvedWorkspaceId(incomingWsId);
+  }
 
-  const workspaceId = resolvedWorkspaceId;
+  const workspaceId = incomingWsId || resolvedWorkspaceId;
   const queryClient = useQueryClient();
 
   /**
