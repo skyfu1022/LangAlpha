@@ -31,8 +31,14 @@ export function useWorkspaceFiles(
     staleTime: 30_000,
   });
 
-  const refresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.workspaceFiles.byWs(workspaceId!, { includeSystem }) });
+  const refresh = useCallback(async () => {
+    if (!workspaceId) return;
+    try {
+      const data = await listWorkspaceFiles(workspaceId, '.', { autoStart: true, includeSystem });
+      queryClient.setQueryData(queryKeys.workspaceFiles.byWs(workspaceId, { includeSystem }), data);
+    } catch {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceFiles.byWs(workspaceId, { includeSystem }) });
+    }
   }, [queryClient, workspaceId, includeSystem]);
 
   return {
