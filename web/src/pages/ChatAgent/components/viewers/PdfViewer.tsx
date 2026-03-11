@@ -11,15 +11,19 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const DEFAULT_ZOOM_INDEX = 2; // 1.0
 
-export default function PdfViewer({ data }) {
-  const [numPages, setNumPages] = useState(null);
+interface PdfViewerProps {
+  data: ArrayBuffer | Uint8Array;
+}
+
+export default function PdfViewer({ data }: PdfViewerProps) {
+  const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM_INDEX);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<Error | null>(null);
 
   const scale = ZOOM_STEPS[zoomIndex];
 
-  const onDocumentLoadSuccess = useCallback(({ numPages: n }) => {
+  const onDocumentLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
     setNumPages(n);
     setPageNumber(1);
   }, []);
@@ -71,7 +75,7 @@ export default function PdfViewer({ data }) {
         <Document
           file={fileData}
           onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={(err) => setError(err)}
+          onLoadError={(err: Error) => setError(err)}
           loading={
             <div className="pdf-loading">Loading PDF...</div>
           }

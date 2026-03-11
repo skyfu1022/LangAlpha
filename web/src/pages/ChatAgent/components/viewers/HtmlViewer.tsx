@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import './HtmlViewer.css';
 
-export default function HtmlViewer({ content }) {
-  const [mode, setMode] = useState('preview');
+interface HtmlViewerProps {
+  content: string;
+}
+
+export default function HtmlViewer({ content }: HtmlViewerProps) {
+  const [mode, setMode] = useState<'preview' | 'source'>('preview');
 
   return (
     <div className="html-viewer">

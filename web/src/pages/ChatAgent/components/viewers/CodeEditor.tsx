@@ -1,6 +1,8 @@
+import React from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 
-const EXT_TO_MONACO_LANG = {
+const EXT_TO_MONACO_LANG: Record<string, string> = {
   py: 'python', js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
   json: 'json', md: 'markdown', yaml: 'yaml', yml: 'yaml', sql: 'sql',
   sh: 'shell', bash: 'shell', rs: 'rust', rb: 'ruby', go: 'go', java: 'java',
@@ -8,19 +10,19 @@ const EXT_TO_MONACO_LANG = {
   txt: 'plaintext', csv: 'plaintext', env: 'shell', log: 'plaintext',
 };
 
-function getLanguageFromFileName(fileName) {
+function getLanguageFromFileName(fileName: string | undefined): string {
   const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
   return EXT_TO_MONACO_LANG[ext] || 'plaintext';
 }
 
-function getTheme() {
+function getTheme(): string {
   if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light') {
     return 'vs';
   }
   return 'vs-dark';
 }
 
-const EDITOR_OPTIONS = {
+const EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   minimap: { enabled: false },
   lineNumbers: 'on',
   wordWrap: 'on',
@@ -30,7 +32,32 @@ const EDITOR_OPTIONS = {
   padding: { top: 8 },
 };
 
-export default function CodeEditor({ value, onChange, fileName, readOnly = false, height = '100%', diffMode = false, originalValue, editorRef, onUndoRedoChange, onTextSelect }) {
+interface TextSelection {
+  text: string;
+  startLine: number;
+  endLine: number;
+  rect: { left: number; top: number; width: number; height: number } | null;
+}
+
+interface UndoRedoState {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+interface CodeEditorProps {
+  value: string | undefined;
+  onChange?: (value: string) => void;
+  fileName?: string;
+  readOnly?: boolean;
+  height?: string;
+  diffMode?: boolean;
+  originalValue?: string;
+  editorRef?: React.MutableRefObject<editor.IStandaloneCodeEditor | null>;
+  onUndoRedoChange?: (state: UndoRedoState) => void;
+  onTextSelect?: (selection: TextSelection | null) => void;
+}
+
+export default function CodeEditor({ value, onChange, fileName, readOnly = false, height = '100%', diffMode = false, originalValue, editorRef, onUndoRedoChange, onTextSelect }: CodeEditorProps) {
   const language = getLanguageFromFileName(fileName);
   const theme = getTheme();
   const showDiff = diffMode && originalValue != null;
@@ -44,12 +71,12 @@ export default function CodeEditor({ value, onChange, fileName, readOnly = false
           language={language}
           theme={theme}
           value={value ?? ''}
-          onMount={(editor) => {
-            if (editorRef) editorRef.current = editor;
+          onMount={(monacoEditor: editor.IStandaloneCodeEditor) => {
+            if (editorRef) editorRef.current = monacoEditor;
             let undoDepth = 0;
             let redoDepth = 0;
             onUndoRedoChange?.({ canUndo: false, canRedo: false });
-            editor.onDidChangeModelContent((e) => {
+            monacoEditor.onDidChangeModelContent((e) => {
               if (e.isUndoing) {
                 undoDepth--;
                 redoDepth++;
@@ -61,24 +88,24 @@ export default function CodeEditor({ value, onChange, fileName, readOnly = false
                 redoDepth = 0;
               }
               onUndoRedoChange?.({ canUndo: undoDepth > 0, canRedo: redoDepth > 0 });
-              onChange?.(editor.getValue());
+              onChange?.(monacoEditor.getValue());
             });
             // Text selection callback for "Add to context"
             if (onTextSelect) {
-              editor.onDidChangeCursorSelection((e) => {
-                const sel = editor.getSelection();
+              monacoEditor.onDidChangeCursorSelection(() => {
+                const sel = monacoEditor.getSelection();
                 if (!sel || sel.isEmpty()) {
                   onTextSelect(null);
                   return;
                 }
-                const text = editor.getModel().getValueInRange(sel);
-                if (!text.trim()) {
+                const text = monacoEditor.getModel()?.getValueInRange(sel);
+                if (!text?.trim()) {
                   onTextSelect(null);
                   return;
                 }
                 // Get visual position of selection start for tooltip placement
-                const pos = editor.getScrolledVisiblePosition(sel.getStartPosition());
-                const editorDom = editor.getDomNode();
+                const pos = monacoEditor.getScrolledVisiblePosition(sel.getStartPosition());
+                const editorDom = monacoEditor.getDomNode();
                 const editorRect = editorDom?.getBoundingClientRect();
                 const rect = (pos && editorRect) ? {
                   left: editorRect.left + pos.left,
@@ -102,20 +129,20 @@ export default function CodeEditor({ value, onChange, fileName, readOnly = false
             theme={theme}
             original={originalValue}
             modified={value ?? ''}
-            onMount={(diffEditor) => {
+            onMount={(diffEditor: editor.IStandaloneDiffEditor) => {
               const modifiedEditor = diffEditor.getModifiedEditor();
               modifiedEditor.onDidChangeModelContent(() => {
                 onChange?.(modifiedEditor.getValue());
               });
               if (onTextSelect) {
-                modifiedEditor.onDidChangeCursorSelection((e) => {
+                modifiedEditor.onDidChangeCursorSelection(() => {
                   const sel = modifiedEditor.getSelection();
                   if (!sel || sel.isEmpty()) {
                     onTextSelect(null);
                     return;
                   }
-                  const text = modifiedEditor.getModel().getValueInRange(sel);
-                  if (!text.trim()) {
+                  const text = modifiedEditor.getModel()?.getValueInRange(sel);
+                  if (!text?.trim()) {
                     onTextSelect(null);
                     return;
                   }

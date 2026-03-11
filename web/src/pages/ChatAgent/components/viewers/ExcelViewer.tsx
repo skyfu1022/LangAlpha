@@ -10,7 +10,24 @@ const DEFAULT_THEME_COLORS = [
   '4472C4', 'ED7D31', 'A5A5A5', 'FFC000', '5B9BD5', '70AD47',
 ];
 
-function applyTint(hex, tint) {
+interface ExcelColor {
+  argb?: string;
+  theme?: number;
+  tint?: number;
+}
+
+interface CellData {
+  value: string;
+  style: React.CSSProperties;
+}
+
+interface SheetData {
+  name: string;
+  rows: CellData[][];
+  totalRows: number;
+}
+
+function applyTint(hex: string, tint: number): string {
   if (!tint) return hex;
   let r = parseInt(hex.slice(0, 2), 16);
   let g = parseInt(hex.slice(2, 4), 16);
@@ -24,12 +41,12 @@ function applyTint(hex, tint) {
     g = Math.round(g * (1 + tint));
     b = Math.round(b * (1 + tint));
   }
-  const clamp = (v) => Math.max(0, Math.min(255, v));
+  const clamp = (v: number) => Math.max(0, Math.min(255, v));
   r = clamp(r); g = clamp(g); b = clamp(b);
   return r.toString(16).padStart(2, '0') + g.toString(16).padStart(2, '0') + b.toString(16).padStart(2, '0');
 }
 
-function resolveColor(color) {
+function resolveColor(color: ExcelColor | undefined | null): string | null {
   if (!color) return null;
   if (color.argb) {
     const argb = color.argb;
@@ -43,14 +60,14 @@ function resolveColor(color) {
   return null;
 }
 
-function getCellStyle(cell) {
-  const style = {};
+function getCellStyle(cell: ExcelJS.Cell | undefined | null): React.CSSProperties {
+  const style: React.CSSProperties = {};
   if (!cell) return style;
 
   // Background fill
-  const fill = cell.fill;
+  const fill = cell.fill as ExcelJS.FillPattern | undefined;
   if (fill?.type === 'pattern' && fill.pattern !== 'none' && fill.fgColor) {
-    const bg = resolveColor(fill.fgColor);
+    const bg = resolveColor(fill.fgColor as ExcelColor);
     if (bg) style.backgroundColor = bg;
   }
 
@@ -59,11 +76,11 @@ function getCellStyle(cell) {
   if (font) {
     if (font.bold) style.fontWeight = 'bold';
     if (font.italic) style.fontStyle = 'italic';
-    const decorations = [];
+    const decorations: string[] = [];
     if (font.underline) decorations.push('underline');
     if (font.strike) decorations.push('line-through');
     if (decorations.length) style.textDecoration = decorations.join(' ');
-    const fontColor = resolveColor(font.color);
+    const fontColor = resolveColor(font.color as ExcelColor | undefined);
     if (fontColor) style.color = fontColor;
     if (font.size) style.fontSize = `${font.size}pt`;
   }
@@ -71,7 +88,7 @@ function getCellStyle(cell) {
   // Alignment
   const align = cell.alignment;
   if (align) {
-    if (align.horizontal) style.textAlign = align.horizontal;
+    if (align.horizontal) style.textAlign = align.horizontal as React.CSSProperties['textAlign'];
     if (align.vertical === 'middle') style.verticalAlign = 'middle';
     else if (align.vertical === 'top') style.verticalAlign = 'top';
     if (align.wrapText) style.whiteSpace = 'pre-wrap';
@@ -80,21 +97,23 @@ function getCellStyle(cell) {
   return style;
 }
 
-function getCellDisplayValue(cell) {
+function getCellDisplayValue(cell: ExcelJS.Cell | undefined | null): string {
   if (!cell || cell.value == null) return '';
   const v = cell.value;
   if (typeof v === 'object') {
-    if (v.richText) return v.richText.map((r) => r.text).join('');
-    if (v.result != null) return String(v.result);
+    // TODO: type properly — ExcelJS CellValue union is complex
+    const obj = v as unknown as Record<string, unknown>;
+    if (obj.richText) return (obj.richText as Array<{ text: string }>).map((r) => r.text).join('');
+    if (obj.result != null) return String(obj.result);
     if (v instanceof Date) return v.toLocaleDateString();
-    if (v.hyperlink) return v.text || v.hyperlink;
-    if (v.error) return v.error;
+    if (obj.hyperlink) return String(obj.text || obj.hyperlink);
+    if (obj.error) return String(obj.error);
   }
   return String(v);
 }
 
 /** Parse workbook into plain data (runs async in effect) */
-async function parseWorkbook(buffer) {
+async function parseWorkbook(buffer: ArrayBuffer): Promise<SheetData[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
 
@@ -102,11 +121,11 @@ async function parseWorkbook(buffer) {
     const colCount = ws.columnCount;
     const rowCount = ws.rowCount;
     const previewCount = Math.min(rowCount, MAX_PREVIEW_ROWS);
-    const rows = [];
+    const rows: CellData[][] = [];
 
     for (let r = 1; r <= previewCount; r++) {
       const row = ws.getRow(r);
-      const cells = [];
+      const cells: CellData[] = [];
       for (let c = 1; c <= colCount; c++) {
         const cell = row.getCell(c);
         cells.push({
@@ -121,16 +140,20 @@ async function parseWorkbook(buffer) {
   });
 }
 
-export default function ExcelViewer({ data }) {
-  const [sheets, setSheets] = useState(null);
+interface ExcelViewerProps {
+  data: ArrayBuffer;
+}
+
+export default function ExcelViewer({ data }: ExcelViewerProps) {
+  const [sheets, setSheets] = useState<SheetData[] | null>(null);
   const [activeSheet, setActiveSheet] = useState(0);
-  const [parseError, setParseError] = useState(null);
+  const [parseError, setParseError] = useState<Error | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     parseWorkbook(data)
       .then((result) => { if (!cancelled) setSheets(result); })
-      .catch((err) => {
+      .catch((err: Error) => {
         console.error('[ExcelViewer] Failed to parse workbook:', err);
         if (!cancelled) setParseError(err);
       });

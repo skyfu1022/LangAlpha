@@ -4,9 +4,9 @@ import './ExcelViewer.css'; // reuse the spreadsheet table styles
 const MAX_PREVIEW_ROWS = 500;
 
 /** Simple RFC 4180-compliant CSV parser */
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let cell = '';
   let inQuote = false;
 
@@ -52,7 +52,11 @@ function parseCsv(text) {
   return rows;
 }
 
-export default function CsvViewer({ content }) {
+interface CsvViewerProps {
+  content: string;
+}
+
+export default function CsvViewer({ content }: CsvViewerProps) {
   const rows = useMemo(() => parseCsv(content || ''), [content]);
 
   if (rows.length === 0) {
