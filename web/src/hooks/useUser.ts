@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { getCurrentUser } from '../pages/Dashboard/utils/api';
+import type { User } from '../types/api';
 
 /**
  * Shared hook for current user profile data.
@@ -10,9 +11,9 @@ import { getCurrentUser } from '../pages/Dashboard/utils/api';
 export function useUser() {
   const { data, ...rest } = useQuery({
     queryKey: queryKeys.user.me(),
-    queryFn: async () => {
-      const res = await getCurrentUser();
-      return res.user ?? res;
+    queryFn: async (): Promise<User> => {
+      const res = await getCurrentUser() as Record<string, unknown> & { user?: User };
+      return (res.user ?? res) as User;
     },
     staleTime: 5 * 60_000,
     retry: false,

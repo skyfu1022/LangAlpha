@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { updatePreferences } from '../pages/Dashboard/utils/api';
+import type { UserPreferences } from '../types/api';
 
 /**
  * Mutation hook for updating user preferences.
@@ -9,8 +10,8 @@ import { updatePreferences } from '../pages/Dashboard/utils/api';
 export function useUpdatePreferences() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: updatePreferences,
-    onSuccess: (updatedPrefs) => {
+    mutationFn: updatePreferences as (prefs: Partial<UserPreferences>) => Promise<UserPreferences>,
+    onSuccess: (updatedPrefs: UserPreferences) => {
       queryClient.setQueryData(queryKeys.user.preferences(), updatedPrefs);
     },
     onError: () => {

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { getPreferences } from '../pages/Dashboard/utils/api';
+import type { UserPreferences } from '../types/api';
 
 /**
  * Shared hook for user preferences.
@@ -10,7 +11,7 @@ import { getPreferences } from '../pages/Dashboard/utils/api';
 export function usePreferences() {
   const { data, ...rest } = useQuery({
     queryKey: queryKeys.user.preferences(),
-    queryFn: getPreferences,
+    queryFn: getPreferences as () => Promise<UserPreferences>,
     staleTime: 5 * 60_000,
     retry: false,
   });

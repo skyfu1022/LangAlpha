@@ -1,40 +1,50 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 
-const ThemeContext = createContext();
+type ThemePreference = 'light' | 'dark' | 'auto';
+type ResolvedTheme = 'light' | 'dark';
 
-function getSystemTheme() {
+export interface ThemeContextValue {
+  theme: ResolvedTheme;
+  preference: ThemePreference;
+  setTheme: (value: ThemePreference) => void;
+  toggleTheme: () => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+function getSystemTheme(): ResolvedTheme {
   return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
-function getInitialPreference() {
+function getInitialPreference(): ThemePreference {
   const stored = localStorage.getItem('theme');
   if (stored === 'light' || stored === 'dark' || stored === 'auto') return stored;
   return 'auto';
 }
 
-export function ThemeProvider({ children }) {
-  const [preference, setPreference] = useState(getInitialPreference);
-  const [systemTheme, setSystemTheme] = useState(getSystemTheme);
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [preference, setPreference] = useState<ThemePreference>(getInitialPreference);
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(getSystemTheme);
 
   // Listen to OS theme changes
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const handler = (e) => setSystemTheme(e.matches ? 'light' : 'dark');
+    const handler = (e: MediaQueryListEvent) => setSystemTheme(e.matches ? 'light' : 'dark');
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
 
   // Resolved theme: what actually gets applied
-  const theme = preference === 'auto' ? systemTheme : preference;
+  const theme: ResolvedTheme = preference === 'auto' ? systemTheme : preference;
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', preference);
-    const favicon = document.querySelector('link[rel="icon"]');
+    const favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
     if (favicon) favicon.href = theme === 'light' ? '/logo-favicon.svg' : '/logo-favicon-dark.svg';
   }, [theme, preference]);
 
-  const setTheme = (value) => setPreference(value);
+  const setTheme = (value: ThemePreference) => setPreference(value);
 
   const toggleTheme = () =>
     setPreference((prev) => {
@@ -55,7 +65,7 @@ export function ThemeProvider({ children }) {
   );
 }
 
-export function useTheme() {
+export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
   return ctx;

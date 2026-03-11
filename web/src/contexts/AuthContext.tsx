@@ -4,18 +4,30 @@ import { supabase } from '../lib/supabase';
 import { setTokenGetter } from '../api/client';
 import { queryKeys } from '../lib/queryKeys';
 
-const AuthContext = createContext(null);
+import type { AuthResponse, OAuthResponse, Provider, Session } from '@supabase/supabase-js';
+
+export interface AuthContextValue {
+  userId: string | null;
+  isInitialized: boolean;
+  isLoggedIn: boolean;
+  loginWithEmail: (email: string, password: string) => Promise<AuthResponse | void>;
+  signupWithEmail: (email: string, password: string, name: string) => Promise<AuthResponse | void>;
+  loginWithProvider: (provider: Provider) => Promise<OAuthResponse | void>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 const _SUPABASE_AUTH_ENABLED = !!import.meta.env.VITE_SUPABASE_URL;
-const _LOCAL_DEV_USER_ID = import.meta.env.VITE_AUTH_USER_ID || 'local-dev-user';
+const _LOCAL_DEV_USER_ID = (import.meta.env.VITE_AUTH_USER_ID as string) || 'local-dev-user';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const baseURL = (import.meta.env.VITE_API_BASE_URL as string) ?? 'http://localhost:8000';
 
 /**
  * Static provider value used when Supabase auth is disabled.
  * Presents the app as permanently logged-in with a local-dev identity.
  */
-const _localDevValue = {
+const _localDevValue: AuthContextValue = {
   userId: _LOCAL_DEV_USER_ID,
   isInitialized: true,
   isLoggedIn: true,
@@ -25,7 +37,7 @@ const _localDevValue = {
   logout: () => Promise.resolve(),
 };
 
-export function AuthProvider({ children }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Skip all Supabase logic when auth is disabled.
   if (!_SUPABASE_AUTH_ENABLED) {
     return <AuthContext.Provider value={_localDevValue}>{children}</AuthContext.Provider>;
@@ -35,23 +47,26 @@ export function AuthProvider({ children }) {
 }
 
 // Module-level — deduplicates concurrent syncUser calls within the same tab
-let _syncPromise = null;
+let _syncPromise: Promise<void> | null = null;
 
 /** Inner provider that uses hooks — only rendered when Supabase auth is enabled. */
-function SupabaseAuthProvider({ children }) {
-  const [session, setSession] = useState(null);
+function SupabaseAuthProvider({ children }: { children: React.ReactNode }) {
+  // supabase is guaranteed non-null here because SupabaseAuthProvider is only
+  // rendered when _SUPABASE_AUTH_ENABLED is true.
+  const sb = supabase!;
+  const [session, setSession] = useState<Session | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const queryClient = useQueryClient();
 
   /** Wire up the axios token getter immediately when we have a session. */
   const wireTokenGetter = useCallback(() => {
     setTokenGetter(() =>
-      supabase.auth.getSession().then((r) => r.data.session?.access_token)
+      sb.auth.getSession().then((r) => r.data.session?.access_token ?? null)
     );
-  }, []);
+  }, [sb]);
 
   /** Sync user on actual sign-in: create/migrate + backfill fields. Seed React Query cache. */
-  const syncUser = useCallback(async (sess) => {
+  const syncUser = useCallback(async (sess: Session) => {
     if (!sess) return;
     if (_syncPromise) return _syncPromise;
     _syncPromise = (async () => {
@@ -91,7 +106,7 @@ function SupabaseAuthProvider({ children }) {
 
   // Bootstrap: read existing session and listen for auth changes.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: sess } }) => {
+    sb.auth.getSession().then(({ data: { session: sess } }) => {
       setSession(sess);
       if (sess) {
         wireTokenGetter();
@@ -103,7 +118,7 @@ function SupabaseAuthProvider({ children }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, sess) => {
+    } = sb.auth.onAuthStateChange((event, sess) => {
       setSession(sess);
       if (sess) {
         wireTokenGetter();
@@ -118,27 +133,27 @@ function SupabaseAuthProvider({ children }) {
       } else {
         // Logged out — wipe all cached data
         queryClient.clear();
-        setTokenGetter(null);
+        setTokenGetter(() => Promise.resolve(null));
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [wireTokenGetter, syncUser, queryClient]);
+  }, [sb, wireTokenGetter, syncUser, queryClient]);
 
   const loginWithEmail = useCallback(
-    (email, password) => supabase.auth.signInWithPassword({ email, password }),
+    (email: string, password: string) => sb.auth.signInWithPassword({ email, password }),
     []
   );
 
   const signupWithEmail = useCallback(
-    (email, password, name) =>
-      supabase.auth.signUp({ email, password, options: { data: { name } } }),
+    (email: string, password: string, name: string) =>
+      sb.auth.signUp({ email, password, options: { data: { name } } }),
     []
   );
 
   const loginWithProvider = useCallback(
-    (provider) =>
-      supabase.auth.signInWithOAuth({
+    (provider: Provider) =>
+      sb.auth.signInWithOAuth({
         provider,
         options: { redirectTo: window.location.origin + '/callback' },
       }),
@@ -146,11 +161,11 @@ function SupabaseAuthProvider({ children }) {
   );
 
   const logout = useCallback(async () => {
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
     queryClient.clear();
   }, [queryClient]);
 
-  const value = {
+  const value: AuthContextValue = {
     userId: session?.user?.id ?? null,
     isInitialized,
     isLoggedIn: !!session,
@@ -163,7 +178,7 @@ function SupabaseAuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
