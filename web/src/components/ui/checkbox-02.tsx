@@ -2,6 +2,15 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 
+interface PremiumCheckboxProps {
+  id: string;
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+}
+
 // Reusable Premium Checkbox Component
 export const PremiumCheckbox = ({
   id,
@@ -10,7 +19,7 @@ export const PremiumCheckbox = ({
   checked,
   onChange,
   disabled = false
-}) => {
+}: PremiumCheckboxProps) => {
   return (
     <div className="relative">
       <label
@@ -88,20 +97,26 @@ export const PremiumCheckbox = ({
   );
 };
 
+interface CheckboxOption {
+  id: string;
+  label: string;
+  description: string;
+}
+
 // Main Demo Component
 export default function App() {
-  const [checkboxes, setCheckboxes] = useState({
+  const [checkboxes, setCheckboxes] = useState<Record<string, boolean>>({
     notifications: true,
     marketing: false,
     analytics: true,
     performance: false,
   });
 
-  const handleCheckboxChange = (key) => {
+  const handleCheckboxChange = (key: string) => {
     setCheckboxes(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const options = [
+  const options: CheckboxOption[] = [
     {
       id: 'notifications',
       label: 'Push Notifications',

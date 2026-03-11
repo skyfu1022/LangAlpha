@@ -2,19 +2,11 @@ import * as React from "react"
 import { ChevronDown } from "lucide-react"
 import { cn } from "../../lib/utils"
 
-/**
- * Custom Select wrapper — replaces native `<select>` with consistent
- * chevron positioning and padding across all browsers / themes.
- *
- * Usage:
- *   <Select value={v} onChange={fn} className="..." style={{...}}>
- *     <option>...</option>
- *   </Select>
- *
- * `className` and `style` are applied to the outer wrapper so layout
- * classes (flex-1, min-w-0, etc.) work correctly in flex contexts.
- */
-const Select = React.forwardRef(
+export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  /** className and style are applied to the outer wrapper for layout purposes */
+}
+
+const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, children, style, ...props }, ref) => {
     return (
       <div className={cn("relative", className)}>

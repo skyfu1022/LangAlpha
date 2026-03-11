@@ -7,19 +7,31 @@ const STROKE_WIDTH = 1.5;
 const RADIUS = (SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-function getColor(pct) {
+function getColor(pct: number): string {
   if (pct > 0.85) return 'var(--color-loss)';
   if (pct > 0.60) return 'var(--color-warning)';
   return 'var(--color-success)';
 }
 
-function fmt(n) {
+function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
 }
 
-export function TokenUsageRing({ tokenUsage }) {
+export interface TokenUsageData {
+  totalInput: number;
+  totalOutput: number;
+  lastOutput: number;
+  total: number;
+  threshold: number;
+}
+
+interface TokenUsageRingProps {
+  tokenUsage: TokenUsageData;
+}
+
+export function TokenUsageRing({ tokenUsage }: TokenUsageRingProps) {
   const { totalInput, totalOutput, lastOutput, total, threshold } = tokenUsage;
 
   const pct = useMemo(() => Math.min(total / threshold, 1), [total, threshold]);

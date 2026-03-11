@@ -20,6 +20,15 @@ const LOADER_FRAMES = [
   [14, 6, 13, 20, 9, 7, 21],
 ];
 
+interface DotLoaderProps extends React.HTMLAttributes<HTMLDivElement> {
+  frames?: number[][];
+  isPlaying?: boolean;
+  duration?: number;
+  dotClassName?: string;
+  repeatCount?: number;
+  onComplete?: () => void;
+}
+
 export function DotLoader({
   frames = LOADER_FRAMES,
   isPlaying = true,
@@ -29,14 +38,14 @@ export function DotLoader({
   repeatCount = -1,
   onComplete,
   ...props
-}) {
-  const gridRef = useRef(null);
+}: DotLoaderProps) {
+  const gridRef = useRef<HTMLDivElement>(null);
   const currentIndex = useRef(0);
   const repeats = useRef(0);
-  const interval = useRef(null);
+  const interval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applyFrameToDots = useCallback(
-    (dots, frameIndex) => {
+    (dots: Element[], frameIndex: number) => {
       const frame = frames[frameIndex];
       if (!frame) return;
       dots.forEach((dot, index) => {
@@ -63,7 +72,7 @@ export function DotLoader({
         applyFrameToDots(dots, currentIndex.current);
         if (currentIndex.current + 1 >= frames.length) {
           if (repeatCount !== -1 && repeats.current + 1 >= repeatCount) {
-            clearInterval(interval.current);
+            clearInterval(interval.current!);
             onComplete?.();
           }
           repeats.current++;

@@ -1,7 +1,13 @@
 import * as React from "react"
 import { cn } from "../../lib/utils"
 
-const badgeVariants = {
+type BadgeVariant = "default" | "success" | "warning" | "destructive" | "muted" | "info"
+
+export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
+  variant?: BadgeVariant
+}
+
+const badgeVariants: Record<BadgeVariant, string> = {
   default: "border-transparent bg-primary text-primary-foreground",
   success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
   warning: "border-yellow-500/30 bg-yellow-500/10 text-yellow-400",
@@ -10,7 +16,7 @@ const badgeVariants = {
   info: "border-blue-500/30 bg-blue-500/10 text-blue-400",
 }
 
-function Badge({ className, variant = "default", ...props }) {
+function Badge({ className, variant = "default", ...props }: BadgeProps) {
   return (
     <div
       className={cn(

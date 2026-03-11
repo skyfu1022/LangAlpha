@@ -1,11 +1,13 @@
 import React from 'react';
 
-/**
- * LogoLoading Component
- *
- * Animated logo loading spinner with draw → hold → reverse erase animation.
- */
-function LogoLoading({ size = 60, color = 'currentColor', className = '', style = {} }) {
+interface LogoLoadingProps {
+  size?: number;
+  color?: string;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+function LogoLoading({ size = 60, color = 'currentColor', className = '', style = {} }: LogoLoadingProps) {
   return (
     <div
       className={`logo-loading-wrap ${className}`}

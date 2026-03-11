@@ -6,22 +6,100 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { TokenUsageRing } from './token-usage-ring';
+import { TokenUsageRing, type TokenUsageData } from './token-usage-ring';
 import { usePreferences } from '@/hooks/usePreferences';
 import { getSkills, getModelMetadata } from '../../pages/ChatAgent/utils/api';
 import './chat-input.css';
 
+/* --- TYPES --- */
+
+interface FileAttachment {
+  id: string;
+  file: File;
+  type: string;
+  preview: string | null;
+  uploadStatus: 'pending' | 'uploading' | 'complete';
+  dataUrl: string | null;
+}
+
+interface MentionedFile {
+  path: string;
+  snippet?: string;
+  label?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  lineCount?: number;
+  source?: string;
+}
+
+interface SlashCommand {
+  type: string;
+  name: string;
+  skillName?: string;
+  description?: string;
+  aliases?: string[];
+}
+
+interface ModelOptions {
+  model: string | null;
+  reasoningEffort: string | null;
+  fastMode: boolean;
+}
+
+interface ReadyAttachment {
+  file: File;
+  dataUrl: string | null;
+  type: string;
+  preview: string | null;
+}
+
+export interface ChatInputHandle {
+  getModelOptions: () => ModelOptions;
+  addContext: (ctx: { path?: string; snippet?: string; label?: string; lineStart?: number; lineEnd?: number; lineCount?: number; source?: string }) => void;
+  setValue: (text: string) => void;
+}
+
+interface Workspace {
+  workspace_id: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface ChatInputProps {
+  onSend: (message: string, planMode: boolean, attachments: ReadyAttachment[], slashCommands: SlashCommand[], modelOptions: ModelOptions) => void;
+  disabled?: boolean;
+  isLoading?: boolean;
+  onStop?: () => void;
+  placeholder?: string;
+  files?: string[];
+  mode?: 'fast' | 'deep';
+  onModeChange?: (mode: 'fast' | 'deep') => void;
+  workspaces?: Workspace[] | null;
+  selectedWorkspaceId?: string | null;
+  onWorkspaceChange?: ((wsId: string) => void) | null;
+  onCaptureChart?: (() => void) | null;
+  chartImage?: string | null;
+  onRemoveChartImage?: (() => void) | null;
+  prefillMessage?: string;
+  onClearPrefill?: (() => void) | null;
+  tokenUsage?: TokenUsageData | null;
+  onAction?: ((cmd: SlashCommand) => void) | null;
+  initialModel?: string | null;
+  threadModels?: string[];
+  dropdownDirection?: 'up' | 'down';
+}
+
 /* --- UTILS --- */
 
 /** Return the appropriate icon for a slash command. */
-function getSlashCommandIcon(cmd, className) {
+function getSlashCommandIcon(cmd: SlashCommand, className: string) {
   if (cmd.type === 'subagent') return <Bot className={className} />;
   if (cmd.name === 'offload') return <HardDriveDownload className={className} />;
   if (cmd.type === 'action') return <Shrink className={className} />;
   return <Terminal className={className} />;
 }
 
-const formatFileSize = (bytes) => {
+const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -30,14 +108,14 @@ const formatFileSize = (bytes) => {
 };
 
 /* --- FILE PREVIEW CARD --- */
-const FilePreviewCard = ({ file, onRemove }) => {
+const FilePreviewCard = ({ file, onRemove }: { file: FileAttachment; onRemove: (id: string) => void }) => {
   const isImage = file.type.startsWith('image/') && file.preview;
 
   return (
     <div className="relative group flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-[var(--color-border-muted)] bg-[var(--color-bg-elevated)] animate-fade-in transition-all hover:border-[var(--color-border-default)]">
       {isImage ? (
         <div className="w-full h-full relative">
-          <img src={file.preview} alt={file.file.name} className="w-full h-full object-cover" />
+          <img src={file.preview!} alt={file.file.name} className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors" />
         </div>
       ) : (
@@ -89,7 +167,7 @@ const BUILTIN_SLASH_COMMANDS = [
 ];
 
 /** Derive a short display name from a model key string. */
-function getModelDisplayName(key) {
+function getModelDisplayName(key: string | null): string {
   if (!key) return '';
   let name = key;
   // Strip common provider prefixes
@@ -98,10 +176,10 @@ function getModelDisplayName(key) {
   }
   // Convert version-like patterns: "opus-4-6" → "Opus 4.6", "sonnet-4-6" → "Sonnet 4.6"
   name = name
-    .replace(/-(\d+)-(\d+)/, ' $1.$2')  // "opus-4-6" → "opus 4.6"
-    .replace(/-(\d+\.\d+)/, ' $1')       // "3.1-pro" → "3.1 pro"
-    .replace(/-/g, ' ')                   // remaining hyphens to spaces
-    .replace(/\b\w/g, c => c.toUpperCase()); // title case
+    .replace(/-(\d+)-(\d+)/, ' $1.$2')
+    .replace(/-(\d+\.\d+)/, ' $1')
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (c: string) => c.toUpperCase());
   return name;
 }
 
@@ -111,7 +189,7 @@ function getModelDisplayName(key) {
  * - openai/codex SDK → must be same provider (sub-provider)
  * - Other SDKs (anthropic, gemini, etc.) → compatible if same SDK
  */
-function areModelsCompatible(modelA, modelB, metadata) {
+function areModelsCompatible(modelA: string | null, modelB: string | null, metadata: Record<string, { sdk?: string; provider?: string }>): boolean {
   if (!modelA || !modelB) return true;
   const a = metadata[modelA], b = metadata[modelB];
   if (!a || !b) return true; // unknown models → allow
@@ -144,7 +222,7 @@ function areModelsCompatible(modelA, modelB, metadata) {
  * @param {string}    prefillMessage
  * @param {Function}  onClearPrefill
  */
-const ChatInput = forwardRef(function ChatInput({
+const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({
   onSend,
   disabled = false,
   isLoading = false,
@@ -178,23 +256,24 @@ const ChatInput = forwardRef(function ChatInput({
 }, ref) {
   const { t } = useTranslation();
   const { preferences } = usePreferences();
-  const starredModels = preferences?.other_preference?.starred_models || [];
-  const preferredModel = preferences?.other_preference?.preferred_model || null;
+  const otherPref = (preferences as Record<string, Record<string, unknown>> | null)?.other_preference;
+  const starredModels = (otherPref?.starred_models as string[] | undefined) || [];
+  const preferredModel = (otherPref?.preferred_model as string | undefined) || null;
   const [message, setMessage] = useState('');
-  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [planMode, setPlanMode] = useState(false);
 
   // Model selector state
   const effectiveInitialModel = initialModel || preferredModel;
-  const [selectedModel, setSelectedModel] = useState(effectiveInitialModel);
-  const [reasoningEffort, setReasoningEffort] = useState(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(effectiveInitialModel);
+  const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
   const [fastMode, setFastMode] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [showMoreModels, setShowMoreModels] = useState(false);
-  const moreModelsTimeout = useRef(null);
-  const [modelMetadata, setModelMetadata] = useState({});
-  const modelMenuRef = useRef(null);
+  const moreModelsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [modelMetadata, setModelMetadata] = useState<Record<string, { sdk?: string; provider?: string }>>({});
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   // Sync selectedModel when initialModel or preferredModel changes
@@ -203,29 +282,29 @@ const ChatInput = forwardRef(function ChatInput({
   }, [effectiveInitialModel]);
 
   // Fetch model metadata for compatibility checking (eager prefetch, resolves instantly after first load)
-  useEffect(() => { getModelMetadata().then(setModelMetadata).catch(() => {}); }, []);
+  useEffect(() => { getModelMetadata().then((d: Record<string, unknown>) => setModelMetadata(d as typeof modelMetadata)).catch(() => {}); }, []);
 
-  const isCodexModel = modelMetadata[selectedModel]?.sdk === 'codex';
+  const isCodexModel = selectedModel ? modelMetadata[selectedModel]?.sdk === 'codex' : false;
 
   // @file mention state
-  const [mentionedFiles, setMentionedFiles] = useState([]);
+  const [mentionedFiles, setMentionedFiles] = useState<MentionedFile[]>([]);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteQuery, setAutocompleteQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [mentionStart, setMentionStart] = useState(-1);
 
   // /slash command state
-  const [slashCommands, setSlashCommands] = useState([]);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
   const [slashStart, setSlashStart] = useState(-1);
-  const [skills, setSkills] = useState([]);
+  const [skills, setSkills] = useState<Array<{ command?: string; name: string; description?: string }>>([]);
 
   // Fetch skills filtered by agent mode (re-fetches when mode changes; cached per mode in api.js)
   const skillsMode = mode === 'fast' ? 'flash' : 'ptc';
   useEffect(() => {
-    getSkills(skillsMode).then(setSkills).catch(() => {});
+    getSkills(skillsMode).then((s: unknown[]) => setSkills(s as typeof skills)).catch(() => {});
   }, [skillsMode]);
 
   // Stop button state
@@ -268,13 +347,13 @@ const ChatInput = forwardRef(function ChatInput({
 
   // Workspace dropdown
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
-  const workspaceMenuRef = useRef(null);
-  const workspaceBtnRef = useRef(null);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const workspaceBtnRef = useRef<HTMLButtonElement>(null);
 
-  const textareaRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const autocompleteRef = useRef(null);
-  const slashMenuRef = useRef(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<HTMLDivElement>(null);
+  const slashMenuRef = useRef<HTMLDivElement>(null);
 
   const hasModeToggle = mode !== undefined && onModeChange !== undefined;
 
@@ -336,9 +415,9 @@ const ChatInput = forwardRef(function ChatInput({
   // Close workspace menu on click outside
   useEffect(() => {
     if (!showWorkspaceMenu) return;
-    const handleClickOutside = (e) => {
-      if (workspaceBtnRef.current?.contains(e.target)) return;
-      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(e.target)) {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (workspaceBtnRef.current?.contains(e.target as Node)) return;
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(e.target as Node)) {
         setShowWorkspaceMenu(false);
       }
     };
@@ -349,8 +428,8 @@ const ChatInput = forwardRef(function ChatInput({
   // Close model menu on click outside
   useEffect(() => {
     if (!showModelMenu) return;
-    const handleClickOutside = (e) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
         setShowModelMenu(false);
         setShowMoreModels(false);
       }
@@ -360,7 +439,7 @@ const ChatInput = forwardRef(function ChatInput({
   }, [showModelMenu]);
 
   // --- File Upload Handling ---
-  const handleFiles = useCallback((newFilesList) => {
+  const handleFiles = useCallback((newFilesList: FileList | File[]) => {
     const currentCount = attachedFiles.length;
     const fileArray = Array.from(newFilesList);
 
@@ -374,14 +453,14 @@ const ChatInput = forwardRef(function ChatInput({
       validFiles.push(file);
     }
 
-    const newFiles = validFiles.map((file) => {
+    const newFiles: FileAttachment[] = validFiles.map((file) => {
       const isImage = file.type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
       return {
         id: Math.random().toString(36).substr(2, 9),
         file,
         type: isImage ? (file.type || 'image/png') : (file.type || 'application/pdf'),
         preview: isImage ? URL.createObjectURL(file) : null,
-        uploadStatus: 'pending',
+        uploadStatus: 'pending' as const,
         dataUrl: null,
       };
     });
@@ -395,7 +474,7 @@ const ChatInput = forwardRef(function ChatInput({
       reader.onload = () => {
         setAttachedFiles((prev) =>
           prev.map((p) =>
-            p.id === f.id ? { ...p, uploadStatus: 'complete', dataUrl: reader.result } : p
+            p.id === f.id ? { ...p, uploadStatus: 'complete' as const, dataUrl: reader.result as string } : p
           )
         );
       };
@@ -406,7 +485,7 @@ const ChatInput = forwardRef(function ChatInput({
     });
   }, [attachedFiles.length]);
 
-  const removeFile = useCallback((id) => {
+  const removeFile = useCallback((id: string) => {
     setAttachedFiles((prev) => {
       const file = prev.find((f) => f.id === id);
       if (file?.preview) URL.revokeObjectURL(file.preview);
@@ -415,22 +494,22 @@ const ChatInput = forwardRef(function ChatInput({
   }, []);
 
   // Drag & Drop
-  const onDragOver = useCallback((e) => {
+  const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
   }, []);
-  const onDragLeave = useCallback((e) => {
+  const onDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
   }, []);
-  const onDrop = useCallback((e) => {
+  const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
   // Paste Handling
-  const handlePaste = useCallback((e) => {
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData.items;
     const pastedFiles = [];
     for (let i = 0; i < items.length; i++) {
@@ -449,7 +528,7 @@ const ChatInput = forwardRef(function ChatInput({
   const filteredMentionFiles = useMemo(() => {
     if (!showAutocomplete) return [];
     const query = autocompleteQuery.toLowerCase();
-    const dirPriority = { '': 0, results: 1, data: 2 };
+    const dirPriority: Record<string, number> = { '': 0, results: 1, data: 2 };
     return workspaceFiles
       .filter((f) => f.toLowerCase().includes(query))
       .sort((a, b) => {
@@ -471,8 +550,8 @@ const ChatInput = forwardRef(function ChatInput({
   const filteredSlashCommands = useMemo(() => {
     if (!showSlashMenu) return [];
     const query = slashQuery.toLowerCase();
-    const items = [
-      ...skills.filter((s) => s.command).map((s) => ({ type: 'skill', name: s.command, skillName: s.name, description: t(`chat.slashCommand.${s.command}Desc`, { defaultValue: s.description }) })),
+    const items: SlashCommand[] = [
+      ...skills.filter((s) => s.command).map((s) => ({ type: 'skill', name: s.command!, skillName: s.name, description: t(`chat.slashCommand.${s.command}Desc`, { defaultValue: s.description }) })),
       ...BUILTIN_SLASH_COMMANDS.map((c) => ({ ...c, description: t(`chat.slashCommand.${c.name}Desc`) })),
     ];
     return items
@@ -480,8 +559,8 @@ const ChatInput = forwardRef(function ChatInput({
       .filter((item) => {
         if (!query) return true;
         if (item.name.toLowerCase().includes(query)) return true;
-        if (item.description.toLowerCase().includes(query)) return true;
-        if (item.aliases?.some((a) => a.toLowerCase().includes(query))) return true;
+        if (item.description?.toLowerCase().includes(query)) return true;
+        if (item.aliases?.some((a: string) => a.toLowerCase().includes(query))) return true;
         return false;
       })
       .slice(0, 10);
@@ -492,7 +571,7 @@ const ChatInput = forwardRef(function ChatInput({
   }, [filteredSlashCommands.length]);
 
   // Detect @ and / triggers on input change
-  const handleChange = useCallback((e) => {
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setMessage(val);
 
@@ -556,7 +635,7 @@ const ChatInput = forwardRef(function ChatInput({
     }
   }, []);
 
-  const selectFile = useCallback((filePath) => {
+  const selectFile = useCallback((filePath: string) => {
     if (mentionStart < 0) return;
     const cursorPos = textareaRef.current?.selectionStart ?? message.length;
     const before = message.slice(0, mentionStart);
@@ -582,7 +661,7 @@ const ChatInput = forwardRef(function ChatInput({
     }, 0);
   }, [mentionStart, message]);
 
-  const removeMention = useCallback((path, label, snippet) => {
+  const removeMention = useCallback((path: string, label?: string, snippet?: string) => {
     setMentionedFiles((prev) => prev.filter((f) => {
       if (snippet) return !(f.snippet === snippet && f.path === path);
       if (label) return !(f.path === path && f.label === label);
@@ -592,7 +671,7 @@ const ChatInput = forwardRef(function ChatInput({
     setMessage((prev) => prev.replace(new RegExp(`(^|\\s)@${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`), '$1$2').trim());
   }, []);
 
-  const selectSlashCommand = useCallback((cmd) => {
+  const selectSlashCommand = useCallback((cmd: SlashCommand) => {
     if (slashStart < 0) return;
     const cursorPos = textareaRef.current?.selectionStart ?? message.length;
     const before = message.slice(0, slashStart);
@@ -633,7 +712,7 @@ const ChatInput = forwardRef(function ChatInput({
     }
   }, [slashStart, message, onAction]);
 
-  const removeSlashCommand = useCallback((name) => {
+  const removeSlashCommand = useCallback((name: string) => {
     setSlashCommands((prev) => prev.filter((c) => c.name !== name));
     // Also remove /{command} text from textarea
     setMessage((prev) => prev.replace(new RegExp(`(^|\\s)/${name}(\\s|$)`), '$1$2').trim());
@@ -709,7 +788,7 @@ const ChatInput = forwardRef(function ChatInput({
   }, [hasContent, disabled, message, planMode, attachedFiles, chartImage, onSend, mentionedFiles, slashCommands]);
 
   // --- Keyboard ---
-  const handleKeyDown = useCallback((e) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Slash command menu keyboard navigation
     if (showSlashMenu && filteredSlashCommands.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -1117,12 +1196,12 @@ const ChatInput = forwardRef(function ChatInput({
                       {/* Primary menu: thread models + reasoning + "More models"
                          Submenu direction: open left if dropdown is near right edge of viewport */}
                       {(() => {
-                        const primaryModels = threadModelsProp.length > 0
-                          ? [...new Set([...threadModelsProp, selectedModel].filter(Boolean))]
-                          : [selectedModel].filter(Boolean);
+                        const primaryModels: string[] = threadModelsProp.length > 0
+                          ? [...new Set([...threadModelsProp, selectedModel].filter((m): m is string => !!m))]
+                          : [selectedModel].filter((m): m is string => !!m);
                         return primaryModels
-                          .filter((m) => !initialModel || areModelsCompatible(selectedModel, m, modelMetadata))
-                          .map((m) => (
+                          .filter((m: string) => !initialModel || areModelsCompatible(selectedModel, m, modelMetadata))
+                          .map((m: string) => (
                             <div
                               key={m}
                               className="model-dropdown-item"
@@ -1142,7 +1221,7 @@ const ChatInput = forwardRef(function ChatInput({
                       <div className="model-effort-section">
                         <span className="model-effort-label">{t('chat.modelSelector.reasoningEffort')}</span>
                         <div className="model-effort-toggle">
-                          {[['low', Zap, t('chat.modelSelector.effortLow')], ['medium', Brain, t('chat.modelSelector.effortMedium')], ['high', Flame, t('chat.modelSelector.effortHigh')]].map(([level, Icon, label]) => (
+                          {([['low', Zap, t('chat.modelSelector.effortLow')], ['medium', Brain, t('chat.modelSelector.effortMedium')], ['high', Flame, t('chat.modelSelector.effortHigh')]] as const).map(([level, Icon, label]) => (
                             <button
                               key={level}
                               className={`model-effort-btn ${level === reasoningEffort ? 'active' : ''}`}
@@ -1182,7 +1261,7 @@ const ChatInput = forwardRef(function ChatInput({
                       {/* "More models" with hover submenu */}
                       <div
                         className="model-dropdown-link model-dropdown-link-arrow"
-                        onMouseEnter={() => { clearTimeout(moreModelsTimeout.current); setShowMoreModels(true); }}
+                        onMouseEnter={() => { if (moreModelsTimeout.current) clearTimeout(moreModelsTimeout.current); setShowMoreModels(true); }}
                         onMouseLeave={() => { moreModelsTimeout.current = setTimeout(() => setShowMoreModels(false), 150); }}
                       >
                         <span>{t('chat.modelSelector.moreModels')}</span>
@@ -1194,7 +1273,7 @@ const ChatInput = forwardRef(function ChatInput({
                           return (
                           <div
                             className={`model-dropdown-submenu ${dropdownDirection === 'down' ? 'model-dropdown-submenu-down' : 'model-dropdown-submenu-up'} ${openLeft ? 'model-dropdown-submenu-left' : 'model-dropdown-submenu-right'}`}
-                            onMouseEnter={() => clearTimeout(moreModelsTimeout.current)}
+                            onMouseEnter={() => { if (moreModelsTimeout.current) clearTimeout(moreModelsTimeout.current); }}
                             onMouseLeave={() => { moreModelsTimeout.current = setTimeout(() => setShowMoreModels(false), 150); }}
                           >
                             {(() => {

@@ -2,14 +2,13 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-/**
- * MorphingPageDots — controlled pagination dots with morphing animation.
- *
- * @param {number}   totalPages   Total number of pages
- * @param {number}   activeIndex  Currently active page (0-indexed)
- * @param {Function} onChange     Called with new page index when user navigates
- */
-function MorphingPageDots({ totalPages, activeIndex, onChange }) {
+interface MorphingPageDotsProps {
+  totalPages: number;
+  activeIndex: number;
+  onChange: (index: number) => void;
+}
+
+function MorphingPageDots({ totalPages, activeIndex, onChange }: MorphingPageDotsProps) {
   if (totalPages <= 1) return null;
 
   // For many pages, only show a window of dots around the active page
@@ -27,7 +26,7 @@ function MorphingPageDots({ totalPages, activeIndex, onChange }) {
     }
   }
 
-  const visiblePages = [];
+  const visiblePages: number[] = [];
   for (let i = startPage; i < endPage; i++) {
     visiblePages.push(i);
   }

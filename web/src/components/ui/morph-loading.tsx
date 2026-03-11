@@ -1,12 +1,17 @@
 import { cn } from "@/lib/utils";
 
-const containerSizes = {
+const containerSizes: Record<string, string> = {
   sm: "w-4 h-4",
   md: "w-6 h-6",
   lg: "w-8 h-8",
 };
 
-export default function MorphLoading({ size = "md", className }) {
+interface MorphLoadingProps {
+  size?: "sm" | "md" | "lg";
+  className?: string;
+}
+
+export default function MorphLoading({ size = "md", className }: MorphLoadingProps) {
   return (
     <div className={cn("relative", containerSizes[size], className)}>
       <div className="absolute inset-0 flex items-center justify-center">

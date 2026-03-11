@@ -1,27 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { animate } from 'framer-motion';
+import { animate, type AnimationPlaybackControls } from 'framer-motion';
+
+interface UseAnimatedTextOptions {
+  enabled?: boolean;
+}
 
 /**
  * useAnimatedText - Smooth word-based typing animation for streamed text.
  *
  * Uses framer-motion's `animate()` with linear easing and animation chaining
  * to reveal text at a constant speed (~32 words/sec) regardless of chunk size.
- *
- * When new text arrives mid-animation, the current animation finishes and
- * seamlessly chains into a new animation for the remaining text — no
- * stop-and-restart discontinuities.
- *
- * @param {string} text - The full (or partial) text received so far
- * @param {Object}  [options]
- * @param {boolean} [options.enabled=true] - When false, returns `text` as-is (use for history)
- * @returns {string} The portion of `text` to display right now
  */
-export function useAnimatedText(text, { enabled = false } = {}) {
+export function useAnimatedText(text: string, { enabled = false }: UseAnimatedTextOptions = {}): string {
   const [displayText, setDisplayText] = useState('');
   const cursorRef = useRef(0);       // characters revealed so far
   const targetRef = useRef('');      // latest full text
   const animatingRef = useRef(false);
-  const controlsRef = useRef(null);
+  const controlsRef = useRef<AnimationPlaybackControls | null>(null);
   const mountedRef = useRef(false);  // tracks first effect run
 
   const startChain = useCallback(() => {
