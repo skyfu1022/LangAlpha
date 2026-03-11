@@ -5,20 +5,53 @@ import ReactMarkdown from 'react-markdown';
 import { getInfoFlowDetail } from '../Dashboard/utils/api';
 import './DetailPage.css';
 
+interface DetailImage {
+  url: string;
+  description?: string;
+}
+
+interface DetailCitation {
+  index?: number;
+  url?: string;
+  title?: string;
+  source?: string;
+  date?: string;
+}
+
+interface DetailNavResult {
+  indexNumber?: string;
+  title?: string;
+}
+
+// TODO: type properly once backend API schema is formalized
+interface InfoFlowDetail {
+  title: string;
+  event_timestamp?: string;
+  market_type?: string;
+  event_type?: string;
+  tags?: string[];
+  summary?: string;
+  images?: (string | DetailImage)[];
+  content: string;
+  citations?: DetailCitation[];
+  previousResult?: DetailNavResult;
+  nextResult?: DetailNavResult;
+}
+
 function DetailPage() {
-  const { indexNumber } = useParams();
+  const { indexNumber } = useParams<{ indexNumber: string }>();
   const navigate = useNavigate();
-  const [detail, setDetail] = useState(null);
+  const [detail, setDetail] = useState<InfoFlowDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchDetail() {
       setLoading(true);
       setError(null);
-      const data = await getInfoFlowDetail(indexNumber);
+      const data = await getInfoFlowDetail(indexNumber!);
       if (data) {
-        setDetail(data);
+        setDetail(data as unknown as InfoFlowDetail);
       } else {
         setError('Failed to load content.');
       }
@@ -136,7 +169,7 @@ function DetailPage() {
               alt={typeof img === 'string' ? `Image ${i + 1}` : (img.description || `Image ${i + 1}`)}
               className="rounded-md flex-shrink-0"
               style={{ maxHeight: '280px', objectFit: 'cover', border: '1px solid var(--color-border-default)' }}
-              onError={(e) => { e.target.style.display = 'none'; }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
           ))}
         </div>

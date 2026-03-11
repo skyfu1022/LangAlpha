@@ -1,16 +1,48 @@
 import React, { useRef, useEffect } from 'react';
 import './WavesBackground.css';
 
+interface WavePoint {
+  x: number;
+  y: number;
+  cursor: { x: number; y: number; vx: number; vy: number };
+}
+
+interface MouseState {
+  x: number;
+  y: number;
+  lx: number;
+  ly: number;
+  sx: number;
+  sy: number;
+  v: number;
+  vs: number;
+  a: number;
+}
+
+interface BoundingState {
+  width: number;
+  height: number;
+  left: number;
+  top: number;
+}
+
+interface WavesState {
+  bounding: BoundingState | null;
+  mouse: MouseState;
+  lines: WavePoint[][];
+  paths: SVGPathElement[];
+}
+
 /**
  * WavesBackground - Wavy lines grid driven by mouse/touch only (no noise).
  * Lines bend toward the cursor; grid resizes with the window.
  * Colors: set --login-waves-bg and --login-waves-stroke in LoginPage.css (see comments there).
  */
 function WavesBackground() {
-  const containerRef = useRef(null);
-  const svgRef = useRef(null);
-  const rafRef = useRef(null);
-  const stateRef = useRef({
+  const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const stateRef = useRef<WavesState>({
     bounding: null,
     mouse: { x: 0, y: 0, lx: 0, ly: 0, sx: 0, sy: 0, v: 0, vs: 0, a: 0 },
     lines: [],
@@ -25,14 +57,15 @@ function WavesBackground() {
     const state = stateRef.current;
 
     function setSize() {
-      const rect = container.getBoundingClientRect();
+      const rect = container!.getBoundingClientRect();
       state.bounding = { width: rect.width, height: rect.height, left: rect.left, top: rect.top };
-      svg.setAttribute('width', state.bounding.width);
-      svg.setAttribute('height', state.bounding.height);
-      svg.setAttribute('viewBox', `0 0 ${state.bounding.width} ${state.bounding.height}`);
+      svg!.setAttribute('width', String(state.bounding.width));
+      svg!.setAttribute('height', String(state.bounding.height));
+      svg!.setAttribute('viewBox', `0 0 ${state.bounding.width} ${state.bounding.height}`);
     }
 
     function setLines() {
+      if (!state.bounding) return;
       const { width, height } = state.bounding;
       if (!width || !height) return;
 
@@ -61,7 +94,7 @@ function WavesBackground() {
         state.lines.push(points);
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('class', 'waves-bg__line');
-        svg.appendChild(path);
+        svg!.appendChild(path);
         state.paths.push(path);
       }
 
@@ -77,9 +110,9 @@ function WavesBackground() {
       }
     }
 
-    function updateMousePosition(x, y) {
+    function updateMousePosition(x: number, y: number) {
       const { mouse } = state;
-      const rect = container.getBoundingClientRect();
+      const rect = container!.getBoundingClientRect();
       mouse.x = x - rect.left;
       mouse.y = y - rect.top;
     }
@@ -111,7 +144,7 @@ function WavesBackground() {
       });
     }
 
-    function moved(point, withCursorForce = true) {
+    function moved(point: WavePoint, withCursorForce = true) {
       const x = point.x + (withCursorForce ? point.cursor.x : 0);
       const y = point.y + (withCursorForce ? point.cursor.y : 0);
       return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
@@ -155,8 +188,8 @@ function WavesBackground() {
       setLines();
     }
 
-    const onMouseMove = (e) => updateMousePosition(e.clientX, e.clientY);
-    const onTouchMove = (e) => {
+    const onMouseMove = (e: MouseEvent) => updateMousePosition(e.clientX, e.clientY);
+    const onTouchMove = (e: TouchEvent) => {
       e.preventDefault();
       const t = e.touches[0];
       if (t) updateMousePosition(t.clientX, t.clientY);

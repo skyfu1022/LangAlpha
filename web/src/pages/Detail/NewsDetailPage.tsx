@@ -3,10 +3,34 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
 import { getNewsArticle } from '../Dashboard/utils/api';
 
+interface ArticleSentiment {
+  ticker: string;
+  sentiment?: string;
+  reasoning?: string;
+}
+
+interface ArticleSource {
+  name?: string;
+  favicon_url?: string;
+}
+
+// TODO: type properly once backend API schema is formalized
+interface NewsArticle {
+  title: string;
+  published_at?: string;
+  author?: string;
+  source?: ArticleSource;
+  tickers?: string[];
+  image_url?: string;
+  description?: string;
+  sentiments?: ArticleSentiment[];
+  article_url?: string;
+}
+
 function NewsDetailPage() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [article, setArticle] = useState(null);
+  const [article, setArticle] = useState<NewsArticle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -14,8 +38,8 @@ function NewsDetailPage() {
     let cancelled = false;
     setLoading(true);
     setError(false);
-    getNewsArticle(id)
-      .then((data) => { if (!cancelled) setArticle(data); })
+    getNewsArticle(id!)
+      .then((data) => { if (!cancelled) setArticle(data as unknown as NewsArticle); })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -86,7 +110,7 @@ function NewsDetailPage() {
                   src={article.source.favicon_url}
                   alt=""
                   className="w-3.5 h-3.5"
-                  onError={(e) => { e.target.style.display = 'none'; }}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                 />
               )}
               {article.source.name}
@@ -118,7 +142,7 @@ function NewsDetailPage() {
             alt=""
             className="w-full"
             style={{ maxHeight: '400px', objectFit: 'cover' }}
-            onError={(e) => { e.target.style.display = 'none'; }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         </div>
       )}

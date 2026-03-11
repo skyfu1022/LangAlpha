@@ -18,6 +18,80 @@ import { getFlashWorkspace } from '@/pages/ChatAgent/utils/api';
 import ConfirmDialog from '@/pages/Dashboard/components/ConfirmDialog';
 import './Settings.css';
 
+interface ByokProvider {
+  provider: string;
+  display_name: string;
+  parent_provider?: string;
+  has_key: boolean;
+  masked_key: string | null;
+  base_url: string | null;
+  is_custom?: boolean;
+  use_response_api?: boolean;
+}
+
+interface CodexDeviceCode {
+  user_code: string;
+  verification_url: string;
+  interval?: number;
+}
+
+interface OAuthStatus {
+  connected: boolean;
+  account_id?: string | null;
+  email?: string | null;
+  plan_type?: string | null;
+}
+
+interface CustomModelEntry {
+  name: string;
+  model_id: string;
+  provider: string;
+  parameters?: Record<string, unknown>;
+  extra_body?: Record<string, unknown>;
+}
+
+interface CustomModelFormState {
+  name: string;
+  model_id: string;
+  provider: string;
+  parameters: string;
+  extra_body: string;
+  _customProvider?: boolean;
+}
+
+interface AddProviderFormState {
+  name: string;
+  parent_provider: string;
+  api_key?: string;
+  base_url?: string;
+  use_response_api?: boolean;
+}
+
+interface ProviderModelsData {
+  models?: string[];
+  display_name?: string;
+}
+
+// TODO: type properly — depends on backend preferences shape
+interface Preferences {
+  risk_preference?: Record<string, unknown>;
+  investment_preference?: Record<string, unknown>;
+  agent_preference?: Record<string, unknown>;
+  other_preference?: Record<string, unknown>;
+}
+
+interface TimezoneOption {
+  value: string;
+  label: string;
+}
+
+interface TimezoneGroup {
+  group: string;
+  options: TimezoneOption[];
+}
+
+type TimezoneEntry = TimezoneOption | TimezoneGroup;
+
 function Settings() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -32,34 +106,34 @@ function Settings() {
 
   const tabParam = searchParams.get('tab') || 'userInfo';
   const [activeTab, setActiveTab] = useState(tabParam);
-  const [avatarUrl, setAvatarUrl] = useState(null);
-  const fileInputRef = useRef(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const [name, setName] = useState('');
   const [timezone, setTimezone] = useState('');
   const [locale, setLocale] = useState('');
 
-  const [preferences, setPreferences] = useState(null);
+  const [preferences, setPreferences] = useState<Preferences | null>(null);
 
   // Model tab state
-  const [availableModels, setAvailableModels] = useState({});
+  const [availableModels, setAvailableModels] = useState<Record<string, string[] | ProviderModelsData>>({});
   const [preferredModel, setPreferredModel] = useState('');
   const [preferredFlashModel, setPreferredFlashModel] = useState('');
-  const [starredModels, setStarredModels] = useState([]);
+  const [starredModels, setStarredModels] = useState<string[]>([]);
   const [byokEnabled, setByokEnabled] = useState(false);
-  const [byokProviders, setByokProviders] = useState([]);
-  const [keyInputs, setKeyInputs] = useState({});
-  const [baseUrlInputs, setBaseUrlInputs] = useState({});
-  const [visibleKeys, setVisibleKeys] = useState({});
+  const [byokProviders, setByokProviders] = useState<ByokProvider[]>([]);
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [baseUrlInputs, setBaseUrlInputs] = useState<Record<string, string>>({});
+  const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
   const [selectedByokProvider, setSelectedByokProvider] = useState('');
-  const [deletingProvider, setDeletingProvider] = useState(null);
+  const [deletingProvider, setDeletingProvider] = useState<string | null>(null);
 
   // Custom (sub-)providers state
   const [showAddProviderForm, setShowAddProviderForm] = useState(false);
-  const [addProviderForm, setAddProviderForm] = useState({ name: '', parent_provider: '' });
-  const [addProviderError, setAddProviderError] = useState(null);
-  const [modelTabError, setModelTabError] = useState(null);
+  const [addProviderForm, setAddProviderForm] = useState<AddProviderFormState>({ name: '', parent_provider: '' });
+  const [addProviderError, setAddProviderError] = useState<string | null>(null);
+  const [modelTabError, setModelTabError] = useState<string | null>(null);
   const [modelSaveSuccess, setModelSaveSuccess] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerSearch, setModelPickerSearch] = useState('');
@@ -67,46 +141,46 @@ function Settings() {
   // Other models state
   const [summarizationModel, setSummarizationModel] = useState('');
   const [fetchModel, setFetchModel] = useState('');
-  const [fallbackModels, setFallbackModels] = useState([]);
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
   const [showOtherModels, setShowOtherModels] = useState(false);
-  const [systemDefaults, setSystemDefaults] = useState({});
+  const [systemDefaults, setSystemDefaults] = useState<Record<string, unknown>>({});
 
   // Custom Models state
-  const [customModels, setCustomModels] = useState([]);
+  const [customModels, setCustomModels] = useState<CustomModelEntry[]>([]);
   const [showCustomModelForm, setShowCustomModelForm] = useState(false);
-  const [editingCustomModelIdx, setEditingCustomModelIdx] = useState(null);
-  const [customModelForm, setCustomModelForm] = useState({ name: '', model_id: '', provider: '', parameters: '', extra_body: '' });
-  const [customModelError, setCustomModelError] = useState(null);
+  const [editingCustomModelIdx, setEditingCustomModelIdx] = useState<number | null>(null);
+  const [customModelForm, setCustomModelForm] = useState<CustomModelFormState>({ name: '', model_id: '', provider: '', parameters: '', extra_body: '' });
+  const [customModelError, setCustomModelError] = useState<string | null>(null);
 
   // Connected Accounts (Codex OAuth — Device Code Flow)
-  const [codexOAuthStatus, setCodexOAuthStatus] = useState({ connected: false });
+  const [codexOAuthStatus, setCodexOAuthStatus] = useState<OAuthStatus>({ connected: false });
   const [showCodexDisclaimer, setShowCodexDisclaimer] = useState(false);
   const [isConnectingCodex, setIsConnectingCodex] = useState(false);
   const [isDisconnectingCodex, setIsDisconnectingCodex] = useState(false);
-  const [codexDeviceCode, setCodexDeviceCode] = useState(null); // { user_code, verification_url, interval }
-  const [codexDeviceError, setCodexDeviceError] = useState(null);
+  const [codexDeviceCode, setCodexDeviceCode] = useState<CodexDeviceCode | null>(null);
+  const [codexDeviceError, setCodexDeviceError] = useState<string | null>(null);
   const [isPollingCodex, setIsPollingCodex] = useState(false);
-  const codexPollRef = useRef(null);
+  const codexPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Connected Accounts (Claude OAuth — PKCE Authorization Code Flow)
-  const [claudeOAuthStatus, setClaudeOAuthStatus] = useState({ connected: false });
+  const [claudeOAuthStatus, setClaudeOAuthStatus] = useState<OAuthStatus>({ connected: false });
   const [showClaudeDisclaimer, setShowClaudeDisclaimer] = useState(false);
   const [isConnectingClaude, setIsConnectingClaude] = useState(false);
   const [isDisconnectingClaude, setIsDisconnectingClaude] = useState(false);
-  const [claudeAuthorizeUrl, setClaudeAuthorizeUrl] = useState(null);
+  const [claudeAuthorizeUrl, setClaudeAuthorizeUrl] = useState<string | null>(null);
   const [claudeCallbackInput, setClaudeCallbackInput] = useState('');
-  const [claudeError, setClaudeError] = useState(null);
+  const [claudeError, setClaudeError] = useState<string | null>(null);
   const [isSubmittingClaudeCallback, setIsSubmittingClaudeCallback] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isLoading = isUserLoading || isPrefsLoading;
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
-  const timezones = [
+  const timezones: TimezoneEntry[] = [
     { value: '', label: t('settings.selectTimezone') },
     { group: 'Americas', options: [
       { value: 'America/New_York', label: 'Eastern Time (America/New_York)' },
@@ -143,7 +217,7 @@ function Settings() {
   ];
 
   // Sync tab with URL search params
-  const handleTabChange = (tab) => {
+  const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     setSearchParams({ tab }, { replace: true });
   };
@@ -160,8 +234,8 @@ function Settings() {
   useEffect(() => {
     if (authUser) {
       setName(authUser.name || '');
-      setTimezone(authUser.timezone || '');
-      setLocale(authUser.locale || '');
+      setTimezone((authUser.timezone as string) || '');
+      setLocale((authUser.locale as string) || '');
       const url = authUser.avatar_url;
       setAvatarUrl(url ? `${url}?v=${authUser.updated_at || ''}` : null);
     }
@@ -199,24 +273,25 @@ function Settings() {
         getUserApiKeys(),
         getCodexOAuthStatus(),
         getClaudeOAuthStatus(),
-      ]);
-      setAvailableModels(modelsRes?.models || {});
-      const defaults = modelsRes?.system_defaults || {};
+      ]) as [Record<string, unknown>, Record<string, unknown>, OAuthStatus, OAuthStatus];
+      setAvailableModels((modelsRes?.models as Record<string, string[] | ProviderModelsData>) || {});
+      const defaults = (modelsRes?.system_defaults as Record<string, unknown>) || {};
       setSystemDefaults(defaults);
-      setByokEnabled(keysRes?.byok_enabled || false);
-      setByokProviders(keysRes?.providers || []);
-      const initialBaseUrls = {};
-      (keysRes?.providers || []).forEach(p => {
+      setByokEnabled(!!keysRes?.byok_enabled);
+      setByokProviders((keysRes?.providers as ByokProvider[]) || []);
+      const initialBaseUrls: Record<string, string> = {};
+      ((keysRes?.providers as ByokProvider[]) || []).forEach(p => {
         if (p.base_url) initialBaseUrls[p.provider] = p.base_url;
       });
       setBaseUrlInputs(initialBaseUrls);
-      setPreferredModel(prefsData?.other_preference?.preferred_model || '');
-      setPreferredFlashModel(prefsData?.other_preference?.preferred_flash_model || '');
-      setStarredModels(prefsData?.other_preference?.starred_models || []);
-      setCustomModels(prefsData?.other_preference?.custom_models || []);
-      setSummarizationModel(prefsData?.other_preference?.summarization_model || '');
-      setFetchModel(prefsData?.other_preference?.fetch_model || '');
-      setFallbackModels(prefsData?.other_preference?.fallback_models || defaults.fallback_models || []);
+      const otherPref = (prefsData as Preferences | null)?.other_preference as Record<string, unknown> | undefined;
+      setPreferredModel((otherPref?.preferred_model as string) || '');
+      setPreferredFlashModel((otherPref?.preferred_flash_model as string) || '');
+      setStarredModels((otherPref?.starred_models as string[]) || []);
+      setCustomModels((otherPref?.custom_models as CustomModelEntry[]) || []);
+      setSummarizationModel((otherPref?.summarization_model as string) || '');
+      setFetchModel((otherPref?.fetch_model as string) || '');
+      setFallbackModels((otherPref?.fallback_models as string[]) || (defaults.fallback_models as string[]) || []);
       setCodexOAuthStatus(codexStatus || { connected: false });
       setClaudeOAuthStatus(claudeStatus || { connected: false });
     } catch {
@@ -233,7 +308,7 @@ function Settings() {
       const customProvidersList = byokProviders
         .filter(p => p.is_custom)
         .map(p => {
-          const entry = { name: p.provider, parent_provider: p.parent_provider };
+          const entry: Record<string, unknown> = { name: p.provider, parent_provider: p.parent_provider };
           if (p.use_response_api) entry.use_response_api = true;
           return entry;
         });
@@ -252,22 +327,22 @@ function Settings() {
 
       // 2. Save any pending API key inputs and base URL changes
       const pendingKeys = Object.entries(keyInputs).filter(([, v]) => v?.trim());
-      const pendingBaseUrls = {};
+      const pendingBaseUrls: Record<string, string | null> = {};
       for (const [provider, url] of Object.entries(baseUrlInputs)) {
         const original = byokProviders.find(p => p.provider === provider)?.base_url || '';
         if (url !== original) pendingBaseUrls[provider] = url || null;
       }
 
       if (pendingKeys.length > 0 || Object.keys(pendingBaseUrls).length > 0) {
-        const payload = {};
+        const payload: Record<string, unknown> = {};
         if (pendingKeys.length > 0) {
           payload.api_keys = Object.fromEntries(pendingKeys.map(([p, k]) => [p, k.trim()]));
         }
         if (Object.keys(pendingBaseUrls).length > 0) {
           payload.base_urls = pendingBaseUrls;
         }
-        const result = await updateUserApiKeys(payload);
-        setByokProviders(result.providers);
+        const result = await updateUserApiKeys(payload) as Record<string, unknown>;
+        setByokProviders(result.providers as ByokProvider[]);
         setKeyInputs({});
       }
 
@@ -284,20 +359,20 @@ function Settings() {
     setModelTabError(null);
     const newValue = !byokEnabled;
     try {
-      const result = await updateUserApiKeys({ byok_enabled: newValue });
-      setByokEnabled(result.byok_enabled);
-      setByokProviders(result.providers);
+      const result = await updateUserApiKeys({ byok_enabled: newValue }) as Record<string, unknown>;
+      setByokEnabled(!!result.byok_enabled);
+      setByokProviders(result.providers as ByokProvider[]);
     } catch {
       setModelTabError(t('settings.failedToToggleByok'));
     }
   };
 
-  const handleDeleteProviderKey = async (provider) => {
+  const handleDeleteProviderKey = async (provider: string) => {
     setDeletingProvider(provider);
     setModelTabError(null);
     try {
-      const result = await deleteUserApiKey(provider);
-      setByokProviders(result.providers);
+      const result = await deleteUserApiKey(provider) as Record<string, unknown>;
+      setByokProviders(result.providers as ByokProvider[]);
     } catch {
       setModelTabError(t('settings.failedToDeleteKey', { provider }));
     } finally {
@@ -336,7 +411,7 @@ function Settings() {
     setAddProviderError(null);
   };
 
-  const handleDeleteCustomProvider = (providerName) => {
+  const handleDeleteCustomProvider = (providerName: string) => {
     setByokProviders(prev => prev.filter(p => p.provider !== providerName));
     // Also clean up any pending key/url inputs
     setKeyInputs(prev => { const next = { ...prev }; delete next[providerName]; return next; });
@@ -354,7 +429,7 @@ function Settings() {
     setModelTabError(null);
     setCodexDeviceError(null);
     try {
-      const device = await initiateCodexDevice();
+      const device = await initiateCodexDevice() as unknown as CodexDeviceCode;
       setCodexDeviceCode(device);
       // Open verification URL in new tab
       window.open(device.verification_url, '_blank', 'noopener');
@@ -370,14 +445,14 @@ function Settings() {
           return;
         }
         try {
-          const result = await pollCodexDevice();
+          const result = await pollCodexDevice() as Record<string, unknown>;
           if (result.success) {
             handleCodexDeviceCancel(); // stop polling
             setCodexOAuthStatus({
               connected: true,
-              account_id: result.account_id,
-              email: result.email,
-              plan_type: result.plan_type,
+              account_id: result.account_id as string,
+              email: result.email as string,
+              plan_type: result.plan_type as string,
             });
           }
           // result.pending → keep polling
@@ -406,13 +481,13 @@ function Settings() {
   // Custom Models helpers
   const CUSTOM_MODEL_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
 
-  const validateCustomModelForm = (form, existingModels, editIdx) => {
+  const validateCustomModelForm = (form: CustomModelFormState, existingModels: CustomModelEntry[], editIdx: number | null): string | null => {
     if (!form.name?.trim()) return t('settings.customModelNameRequired');
     if (!CUSTOM_MODEL_NAME_RE.test(form.name.trim())) return t('settings.customModelNameInvalid');
     if (!form.model_id?.trim()) return t('settings.customModelIdRequired');
     if (!form.provider?.trim()) return t('settings.customModelProviderRequired');
     // Check collision with system models
-    const allSystemModels = Object.values(availableModels).flatMap(pd => Array.isArray(pd) ? pd : pd?.models || []);
+    const allSystemModels = Object.values(availableModels).flatMap(pd => Array.isArray(pd) ? pd : (pd as ProviderModelsData)?.models || []);
     if (allSystemModels.includes(form.name.trim())) return t('settings.customModelNameConflict');
     // Check duplicate in custom models
     const dup = existingModels.findIndex((cm, i) => i !== editIdx && cm.name === form.name.trim());
@@ -422,7 +497,7 @@ function Settings() {
     const prov = byokProviders.find(p => p.provider === providerName);
     if (!prov || !prov.has_key) return t('settings.customModelProviderNoKey', { provider: providerName });
     // Validate JSON fields
-    for (const field of ['parameters', 'extra_body']) {
+    for (const field of ['parameters', 'extra_body'] as const) {
       const val = form[field]?.trim();
       if (val) {
         try { JSON.parse(val); } catch { return `${field}: ${t('settings.customModelInvalidJson')}`; }
@@ -434,7 +509,7 @@ function Settings() {
   const handleCustomModelSave = () => {
     const err = validateCustomModelForm(customModelForm, customModels, editingCustomModelIdx);
     if (err) { setCustomModelError(err); return; }
-    const entry = {
+    const entry: CustomModelEntry = {
       name: customModelForm.name.trim(),
       model_id: customModelForm.model_id.trim(),
       provider: customModelForm.provider.trim(),
@@ -453,7 +528,7 @@ function Settings() {
     setCustomModelError(null);
   };
 
-  const handleCustomModelEdit = (idx) => {
+  const handleCustomModelEdit = (idx: number) => {
     const cm = customModels[idx];
     const isKnown = byokProviders.some(p => p.provider === cm.provider);
     setCustomModelForm({
@@ -469,7 +544,7 @@ function Settings() {
     setCustomModelError(null);
   };
 
-  const handleCustomModelDelete = (idx) => {
+  const handleCustomModelDelete = (idx: number) => {
     setCustomModels(prev => prev.filter((_, i) => i !== idx));
   };
 
@@ -505,10 +580,10 @@ function Settings() {
     setModelTabError(null);
     setClaudeError(null);
     try {
-      const result = await initiateClaudeOAuth();
-      setClaudeAuthorizeUrl(result.authorize_url);
+      const result = await initiateClaudeOAuth() as Record<string, unknown>;
+      setClaudeAuthorizeUrl(result.authorize_url as string);
       // Open authorization page in new tab
-      window.open(result.authorize_url, '_blank', 'noopener');
+      window.open(result.authorize_url as string, '_blank', 'noopener');
     } catch {
       setModelTabError(t('settings.claudeConnectFailed', 'Failed to initiate Claude OAuth'));
     } finally {
@@ -521,19 +596,20 @@ function Settings() {
     setIsSubmittingClaudeCallback(true);
     setClaudeError(null);
     try {
-      const result = await submitClaudeCallback(claudeCallbackInput.trim());
+      const result = await submitClaudeCallback(claudeCallbackInput.trim()) as Record<string, unknown>;
       if (result.success) {
         setClaudeAuthorizeUrl(null);
         setClaudeCallbackInput('');
         setClaudeOAuthStatus({
           connected: true,
-          account_id: result.account_id || '',
-          email: result.email || null,
-          plan_type: result.plan_type || null,
+          account_id: (result.account_id as string) || '',
+          email: (result.email as string) || null,
+          plan_type: (result.plan_type as string) || null,
         });
       }
-    } catch (e) {
-      setClaudeError(e.response?.data?.detail || t('settings.claudePasteError', 'Failed to exchange code. Please try again.'));
+    } catch (e: unknown) {
+      const axiosError = e as { response?: { data?: { detail?: string } } };
+      setClaudeError(axiosError.response?.data?.detail || t('settings.claudePasteError', 'Failed to exchange code. Please try again.'));
     } finally {
       setIsSubmittingClaudeCallback(false);
     }
@@ -558,12 +634,12 @@ function Settings() {
     }
   };
 
-  const handleAvatarChange = async (e) => {
-    const file = e.target.files[0];
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingAvatar(true);
     try {
-      const { avatar_url } = await uploadAvatar(file);
+      const { avatar_url } = await uploadAvatar(file) as { avatar_url: string };
       setAvatarUrl(`${avatar_url}?t=${Date.now()}`);
       queryClient.invalidateQueries({ queryKey: queryKeys.user.me() });
     } catch {
@@ -573,7 +649,7 @@ function Settings() {
     }
   };
 
-  const handleLocaleChange = (newLocale) => {
+  const handleLocaleChange = (newLocale: string) => {
     setLocale(newLocale);
     // Also switch i18n language for supported UI locales
     if (newLocale === 'en-US' || newLocale === 'zh-CN') {
@@ -582,13 +658,13 @@ function Settings() {
     }
   };
 
-  const handleUserInfoSubmit = async (e) => {
+  const handleUserInfoSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
     setSaveSuccess(false);
     try {
-      const userData = {};
+      const userData: Record<string, string> = {};
       if (name.trim()) userData.name = name.trim();
       if (timezone) userData.timezone = timezone;
       if (locale) userData.locale = locale;
@@ -598,8 +674,8 @@ function Settings() {
       }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      setError(err.message || t('settings.failedToUpdateUser'));
+    } catch (err: unknown) {
+      setError((err as Error).message || t('settings.failedToUpdateUser'));
     } finally {
       setIsSubmitting(false);
     }
@@ -616,8 +692,8 @@ function Settings() {
           workspaceStatus: 'flash',
         },
       });
-    } catch (error) {
-      console.error('Error navigating to modify preferences:', error);
+    } catch (err) {
+      console.error('Error navigating to modify preferences:', err);
       toast({
         variant: 'destructive',
         title: t('common.error'),
@@ -637,8 +713,8 @@ function Settings() {
           workspaceStatus: 'flash',
         },
       });
-    } catch (error) {
-      console.error('Error setting up onboarding:', error);
+    } catch (err) {
+      console.error('Error setting up onboarding:', err);
       toast({
         variant: 'destructive',
         title: t('common.error'),
@@ -669,8 +745,9 @@ function Settings() {
 
   // Prevent Enter key in text inputs from submitting the enclosing <form>.
   // Only the explicit submit button should trigger form submission.
-  const preventEnterSubmit = (e) => {
-    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type !== 'submit') {
+  const preventEnterSubmit = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    const target = e.target as HTMLElement;
+    if (e.key === 'Enter' && target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'submit') {
       e.preventDefault();
     }
   };
@@ -789,7 +866,7 @@ function Settings() {
                       disabled={isSubmitting}
                     >
                       {timezones.map((item, i) => (
-                        item.value !== undefined ? (
+                        'value' in item ? (
                           <option key={i} value={item.value}>{item.label}</option>
                         ) : (
                           <optgroup key={i} label={item.group}>
@@ -933,7 +1010,7 @@ function Settings() {
                         { label: t('settings.riskTolerance'), data: preferences.risk_preference },
                         { label: t('settings.investmentStyle'), data: preferences.investment_preference },
                         { label: t('settings.agentSettings'), data: preferences.agent_preference },
-                      ].filter(({ data }) => data && Object.keys(data).length > 0).map(({ label, data }) => (
+                      ].filter((item): item is { label: string; data: Record<string, unknown> } => !!item.data && Object.keys(item.data).length > 0).map(({ label, data }) => (
                         <div key={label}>
                           <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-primary)' }}>{label}</label>
                           <div
@@ -1028,8 +1105,8 @@ function Settings() {
                               {sysDefault ? `${t('settings.systemDefault')} (${sysDefault})` : t('settings.systemDefault')}
                             </option>
                             {Object.entries(availableModels).map(([provider, providerData]) => {
-                              const models = Array.isArray(providerData) ? providerData : providerData?.models || [];
-                              const displayName = providerData?.display_name || provider.charAt(0).toUpperCase() + provider.slice(1);
+                              const models = Array.isArray(providerData) ? providerData : (providerData as ProviderModelsData)?.models || [];
+                              const displayName = (!Array.isArray(providerData) && (providerData as ProviderModelsData)?.display_name) || provider.charAt(0).toUpperCase() + provider.slice(1);
                               return (
                               <optgroup key={provider} label={displayName}>
                                 {models.map((m) => (
@@ -1133,27 +1210,26 @@ function Settings() {
                         {/* Provider groups */}
                         <div className="px-1 pb-1 max-h-[280px] overflow-y-auto">
                           {Object.entries(availableModels).map(([provider, providerData]) => {
-                            const models = Array.isArray(providerData) ? providerData : providerData?.models || [];
+                            const models: string[] = Array.isArray(providerData) ? providerData : (providerData as ProviderModelsData)?.models || [];
                             const query = modelPickerSearch.toLowerCase();
                             const filtered = query
-                              ? models.filter(m => (typeof m === 'string' ? m : m.name || m.key || '').toLowerCase().includes(query))
+                              ? models.filter(m => m.toLowerCase().includes(query))
                               : models;
                             if (filtered.length === 0) return null;
-                            const displayName = providerData?.display_name || provider.charAt(0).toUpperCase() + provider.slice(1);
+                            const displayName = (!Array.isArray(providerData) && (providerData as ProviderModelsData)?.display_name) || provider.charAt(0).toUpperCase() + provider.slice(1);
                             return (
                               <div key={provider} className="mb-1">
                                 <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-tertiary)' }}>
                                   {displayName}
                                 </div>
                                 {filtered.map((m) => {
-                                  const key = typeof m === 'string' ? m : (m.key || m.name || m);
-                                  const isStarred = starredModels.includes(key);
+                                  const isStarred = starredModels.includes(m);
                                   return (
                                     <button
-                                      key={key}
+                                      key={m}
                                       type="button"
                                       onClick={() => setStarredModels(prev =>
-                                        prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+                                        prev.includes(m) ? prev.filter(k => k !== m) : [...prev, m]
                                       )}
                                       className="w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors"
                                       style={{
@@ -1163,7 +1239,7 @@ function Settings() {
                                       onMouseEnter={(e) => { if (!isStarred) e.currentTarget.style.backgroundColor = 'var(--color-bg-elevated)'; }}
                                       onMouseLeave={(e) => { if (!isStarred) e.currentTarget.style.backgroundColor = 'transparent'; }}
                                     >
-                                      <span>{typeof m === 'string' ? m : (m.name || key)}</span>
+                                      <span>{m}</span>
                                       {isStarred && <Pin className="h-3 w-3 flex-shrink-0" style={{ color: 'var(--color-accent-primary)' }} />}
                                     </button>
                                   );
@@ -1218,8 +1294,8 @@ function Settings() {
                                     {sysDefault ? `${t('settings.systemDefault')} (${sysDefault})` : t('settings.systemDefault')}
                                   </option>
                                   {Object.entries(availableModels).map(([provider, providerData]) => {
-                                    const models = Array.isArray(providerData) ? providerData : providerData?.models || [];
-                                    const displayName = providerData?.display_name || provider.charAt(0).toUpperCase() + provider.slice(1);
+                                    const models = Array.isArray(providerData) ? providerData : (providerData as ProviderModelsData)?.models || [];
+                                    const displayName = (!Array.isArray(providerData) && (providerData as ProviderModelsData)?.display_name) || provider.charAt(0).toUpperCase() + provider.slice(1);
                                     return (
                                       <optgroup key={provider} label={displayName}>
                                         {models.map((m) => (
@@ -1245,7 +1321,7 @@ function Settings() {
                           </p>
                           <div className="flex flex-wrap items-center gap-1.5">
                             {fallbackModels.map((key, idx) => {
-                              const isDefault = (systemDefaults.fallback_models || []).includes(key);
+                              const isDefault = ((systemDefaults.fallback_models as string[]) || []).includes(key);
                               return (
                                 <button
                                   key={`${key}-${idx}`}
@@ -1288,8 +1364,8 @@ function Settings() {
                             >
                               <option value="">{t('settings.addFallback', '+ Add')}</option>
                               {Object.entries(availableModels).map(([provider, providerData]) => {
-                                const models = Array.isArray(providerData) ? providerData : providerData?.models || [];
-                                const displayName = providerData?.display_name || provider.charAt(0).toUpperCase() + provider.slice(1);
+                                const models = Array.isArray(providerData) ? providerData : (providerData as ProviderModelsData)?.models || [];
+                                const displayName = (!Array.isArray(providerData) && (providerData as ProviderModelsData)?.display_name) || provider.charAt(0).toUpperCase() + provider.slice(1);
                                 return (
                                   <optgroup key={provider} label={displayName}>
                                     {models.filter(m => !fallbackModels.includes(m)).map((m) => (
@@ -1753,7 +1829,7 @@ function Settings() {
                                   type={visibleKeys[prov.provider] ? 'text' : 'password'}
                                   value={keyInputs[prov.provider] || ''}
                                   onChange={(e) => setKeyInputs((prev) => ({ ...prev, [prov.provider]: e.target.value }))}
-                                  placeholder={prov.has_key ? prov.masked_key : t('settings.enterApiKey')}
+                                  placeholder={prov.has_key ? (prov.masked_key ?? undefined) : t('settings.enterApiKey')}
                                   className="w-full rounded-md px-3 py-1.5 pr-16 text-sm"
                                   style={{
                                     backgroundColor: 'var(--color-bg-card)',

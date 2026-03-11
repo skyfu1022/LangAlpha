@@ -5,7 +5,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import WavesBackground from './WavesBackground';
 import './LoginPage.css';
 
-function LogoIcon({ className }) {
+interface LogoIconProps {
+  className?: string;
+}
+
+function LogoIcon({ className }: LogoIconProps) {
   return (
     <svg className={className} viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M40.0312 29.6023L49.9852 25.4051C50.5292 25.1758 50.7571 24.5277 50.4765 24.0084L45.6363 15.0496C45.3489 14.5178 44.6591 14.3605 44.1696 14.7153L34.6523 21.6136M40.0312 29.6023L33.933 32.1736C31.7869 33.0785 31.4456 35.9773 33.3229 37.3559L44.168 45.3202C44.6573 45.6795 45.3512 45.5235 45.6397 44.9895L50.5087 35.9776C50.7774 35.4803 50.5808 34.8593 50.0749 34.6072L40.0312 29.6023ZM34.6523 21.6136L30.5854 24.5614C28.7503 25.8916 26.1597 24.7846 25.8525 22.5391L24.1554 10.1356C24.0732 9.53499 24.54 9 25.1461 9H34.7163C35.3048 9 35.766 9.50561 35.7121 10.0916L34.6523 21.6136Z" stroke="currentColor" strokeWidth="3" />
@@ -39,38 +43,42 @@ function GitHubIcon() {
  */
 function LoginPage() {
   const { loginWithEmail, signupWithEmail, loginWithProvider } = useAuth();
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [signupName, setSignupName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { t } = useTranslation();
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
     try {
-      const { error: authError } = await loginWithEmail(loginEmail, loginPassword);
+      const result = await loginWithEmail(loginEmail, loginPassword);
+      if (!result) return;
+      const { error: authError } = result;
       if (authError) throw authError;
-    } catch (err) {
-      setError(err?.message || 'Login failed');
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Login failed');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleSignup = async (e) => {
+  const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
     setSuccessMessage(null);
     try {
-      const { data, error: authError } = await signupWithEmail(signupEmail, signupPassword, signupName);
+      const result = await signupWithEmail(signupEmail, signupPassword, signupName);
+      if (!result) return;
+      const { data, error: authError } = result;
       if (authError) throw authError;
       if (data?.user && !data.session) {
         if (data.user.identities?.length === 0) {
@@ -79,20 +87,22 @@ function LoginPage() {
           setSuccessMessage(t('auth.signupCheckEmail'));
         }
       }
-    } catch (err) {
-      setError(err?.message || 'Sign up failed');
+    } catch (err: unknown) {
+      setError((err as Error)?.message || 'Sign up failed');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleOAuth = async (provider) => {
+  const handleOAuth = async (provider: 'google' | 'github') => {
     setError(null);
     try {
-      const { error: authError } = await loginWithProvider(provider);
+      const result = await loginWithProvider(provider);
+      if (!result) return;
+      const { error: authError } = result;
       if (authError) throw authError;
-    } catch (err) {
-      setError(err?.message || `${provider} login failed`);
+    } catch (err: unknown) {
+      setError((err as Error)?.message || `${provider} login failed`);
     }
   };
 
@@ -207,7 +217,7 @@ function LoginPage() {
             {successMessage && <div className="login-page__success">{successMessage}</div>}
             <button
               type="submit"
-              disabled={isSubmitting || successMessage}
+              disabled={isSubmitting || !!successMessage}
               className="login-page__submit"
             >
               {isSubmitting ? t('auth.creatingAccount') : t('auth.signup')}

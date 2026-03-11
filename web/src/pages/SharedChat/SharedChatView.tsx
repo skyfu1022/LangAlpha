@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FolderOpen, Loader2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -18,8 +18,22 @@ import {
   handleHistoryTodoUpdate,
 } from '../ChatAgent/hooks/utils/historyEventHandlers';
 import { getSharedThread, replaySharedThread, getSharedFiles, readSharedFile, downloadSharedFileAs } from './api';
+import type { SharedThreadMetadata, SharedFileEntry, SSEEvent } from './api';
 
-function updateMessage(messages, messageId, updater) {
+// Message record type compatible with historyEventHandlers
+type MessageRecord = Record<string, unknown>;
+
+/** SetMessages type matching historyEventHandlers' signature */
+type SetMessages = (updater: (prev: MessageRecord[]) => MessageRecord[]) => void;
+
+/** PairState type matching historyEventHandlers' PairState */
+interface PairState {
+  contentOrderCounter: number;
+  reasoningId: string | null;
+  toolCallId: string | null;
+}
+
+function updateMessage(messages: MessageRecord[], messageId: string, updater: (m: MessageRecord) => MessageRecord): MessageRecord[] {
   return messages.map((m) => (m.id === messageId ? updater(m) : m));
 }
 
@@ -29,35 +43,35 @@ function updateMessage(messages, messageId, updater) {
  * Accessible at /s/:shareToken without authentication.
  */
 export default function SharedChatView() {
-  const { shareToken } = useParams();
+  const { shareToken } = useParams<{ shareToken: string }>();
   const { theme } = useTheme();
   const logo = theme === 'dark' ? logoDark : logoLight;
 
-  const [metadata, setMetadata] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [metadata, setMetadata] = useState<SharedThreadMetadata | null>(null);
+  const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [replayDone, setReplayDone] = useState(false);
 
   // File panel (right side, matching ChatView's rightPanelType === 'file')
   const [showFilePanel, setShowFilePanel] = useState(false);
-  const [files, setFiles] = useState([]);
+  const [files, setFiles] = useState<SharedFileEntry[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
-  const [filePanelTargetFile, setFilePanelTargetFile] = useState(null);
+  const [filePanelTargetFile, setFilePanelTargetFile] = useState<string | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState(750);
   const isDraggingRef = useRef(false);
 
-  const scrollAreaRef = useRef(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Fetch metadata
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const meta = await getSharedThread(shareToken);
+        const meta = await getSharedThread(shareToken!);
         if (!cancelled) setMetadata(meta);
-      } catch (e) {
-        if (!cancelled) setError(e.message);
+      } catch (e: unknown) {
+        if (!cancelled) setError((e as Error).message);
       }
     })();
     return () => { cancelled = true; };
@@ -68,31 +82,34 @@ export default function SharedChatView() {
     if (!metadata) return;
     let cancelled = false;
 
-    const assistantMessagesByPair = new Map();
-    const pairStateByPair = new Map();
-    let currentActivePairIndex = null;
-    let currentActivePairState = null;
+    const assistantMessagesByPair = new Map<number, string>();
+    const pairStateByPair = new Map<number, PairState>();
+    let currentActivePairIndex: number | null = null;
+    let currentActivePairState: PairState | undefined = undefined;
 
     // Persistent refs that survive across event callbacks (matching useChatMessages shape)
     const sharedRefs = {
-      recentlySentTracker: { isRecentlySent: () => false },
-      currentMessageRef: { current: null },
+      recentlySentTracker: { isRecentlySent: (_content: string) => false },
+      currentMessageRef: { current: null as string | null },
       newMessagesStartIndexRef: { current: 0 },
-      historyMessagesRef: { current: new Set() },
+      historyMessagesRef: { current: new Set<string>() },
     };
+
+    // Cast setMessages to the narrower type expected by historyEventHandlers
+    const setMessagesCompat: SetMessages = setMessages;
 
     (async () => {
       try {
-        await replaySharedThread(shareToken, (event) => {
+        await replaySharedThread(shareToken!, (event: SSEEvent) => {
           if (cancelled) return;
-          const eventType = event.event;
-          const contentType = event.content_type;
+          const eventType = event.event as string | undefined;
+          const contentType = event.content_type as string | undefined;
           const hasRole = event.role !== undefined;
           const hasPairIndex = event.turn_index !== undefined;
 
           if (hasPairIndex) {
-            currentActivePairIndex = event.turn_index;
-            currentActivePairState = pairStateByPair.get(event.turn_index);
+            currentActivePairIndex = event.turn_index as number;
+            currentActivePairState = pairStateByPair.get(event.turn_index as number);
           }
 
           if (eventType === 'replay_done') {
@@ -110,19 +127,19 @@ export default function SharedChatView() {
           if (eventType === 'user_message' && hasPairIndex) {
             handleHistoryUserMessage({
               event,
-              pairIndex: event.turn_index,
+              pairIndex: event.turn_index as number,
               assistantMessagesByPair,
               pairStateByPair,
               refs: sharedRefs,
               messages: [],
-              setMessages,
+              setMessages: setMessagesCompat,
             });
             return;
           }
 
           // message_chunk (text, reasoning)
           if (eventType === 'message_chunk' && hasRole && event.role === 'assistant' && hasPairIndex) {
-            const pairIndex = event.turn_index;
+            const pairIndex = event.turn_index as number;
             const currentAssistantMessageId = assistantMessagesByPair.get(pairIndex);
             const pairState = pairStateByPair.get(pairIndex);
             if (!currentAssistantMessageId || !pairState) return;
@@ -130,10 +147,10 @@ export default function SharedChatView() {
             if (contentType === 'reasoning_signal') {
               handleHistoryReasoningSignal({
                 assistantMessageId: currentAssistantMessageId,
-                signalContent: event.content || '',
+                signalContent: (event.content as string) || '',
                 pairIndex,
                 pairState,
-                setMessages,
+                setMessages: setMessagesCompat,
               });
               return;
             }
@@ -141,9 +158,9 @@ export default function SharedChatView() {
             if (contentType === 'reasoning' && event.content) {
               handleHistoryReasoningContent({
                 assistantMessageId: currentAssistantMessageId,
-                content: event.content,
+                content: event.content as string,
                 pairState,
-                setMessages,
+                setMessages: setMessagesCompat,
               });
               return;
             }
@@ -151,10 +168,10 @@ export default function SharedChatView() {
             if (contentType === 'text' && event.content) {
               handleHistoryTextContent({
                 assistantMessageId: currentAssistantMessageId,
-                content: event.content,
-                finishReason: event.finish_reason,
+                content: event.content as string,
+                finishReason: event.finish_reason as string | undefined,
                 pairState,
-                setMessages,
+                setMessages: setMessagesCompat,
               });
               return;
             }
@@ -175,17 +192,17 @@ export default function SharedChatView() {
 
           // artifact (todo_update)
           if (eventType === 'artifact' && event.artifact_type === 'todo_update' && hasPairIndex) {
-            const pairIndex = event.turn_index;
+            const pairIndex = event.turn_index as number;
             const currentAssistantMessageId = assistantMessagesByPair.get(pairIndex);
             const pairState = pairStateByPair.get(pairIndex);
             if (currentAssistantMessageId && pairState) {
               handleHistoryTodoUpdate({
                 assistantMessageId: currentAssistantMessageId,
-                artifactType: event.artifact_type,
-                artifactId: event.artifact_id,
-                payload: event.payload || {},
+                artifactType: event.artifact_type as string,
+                artifactId: event.artifact_id as string,
+                payload: (event.payload as Record<string, unknown>) || {},
                 pairState,
-                setMessages,
+                setMessages: setMessagesCompat,
               });
             }
             return;
@@ -193,64 +210,65 @@ export default function SharedChatView() {
 
           // tool_calls
           if (eventType === 'tool_calls' && hasPairIndex) {
-            const pairIndex = event.turn_index;
+            const pairIndex = event.turn_index as number;
             const currentAssistantMessageId = assistantMessagesByPair.get(pairIndex);
             const pairState = pairStateByPair.get(pairIndex);
             if (!currentAssistantMessageId || !pairState) return;
 
             handleHistoryToolCalls({
               assistantMessageId: currentAssistantMessageId,
-              toolCalls: event.tool_calls,
+              toolCalls: event.tool_calls as Array<Record<string, unknown>>,
               pairState,
-              setMessages,
+              setMessages: setMessagesCompat,
             });
             return;
           }
 
           // tool_call_result
           if (eventType === 'tool_call_result' && hasPairIndex) {
-            const pairIndex = event.turn_index;
+            const pairIndex = event.turn_index as number;
             const currentAssistantMessageId = assistantMessagesByPair.get(pairIndex);
             const pairState = pairStateByPair.get(pairIndex);
             if (!currentAssistantMessageId || !pairState) return;
 
             handleHistoryToolCallResult({
               assistantMessageId: currentAssistantMessageId,
-              toolCallId: event.tool_call_id,
+              toolCallId: event.tool_call_id as string,
               result: {
                 content: event.content,
-                content_type: event.content_type,
-                tool_call_id: event.tool_call_id,
+                content_type: event.content_type as string,
+                tool_call_id: event.tool_call_id as string,
                 artifact: event.artifact,
               },
               pairState,
-              setMessages,
+              setMessages: setMessagesCompat,
             });
             return;
           }
 
           // interrupt — show plan approval as already-resolved
           if (eventType === 'interrupt' && hasPairIndex) {
-            const pairIndex = event.turn_index;
+            const pairIndex = event.turn_index as number;
             const currentAssistantMessageId = assistantMessagesByPair.get(pairIndex);
             const pairState = pairStateByPair.get(pairIndex);
             if (!currentAssistantMessageId || !pairState) return;
 
-            const interrupts = event.interrupts || [];
+            const interrupts = (event.interrupts as Array<Record<string, unknown>>) || [];
             interrupts.forEach((interrupt) => {
-              if (interrupt.type === 'plan_approval' || interrupt.action_request?.action === 'SubmitPlan') {
-                const planData = interrupt.action_request?.args || interrupt.data || {};
+              const actionRequest = interrupt.action_request as Record<string, unknown> | undefined;
+              if (interrupt.type === 'plan_approval' || actionRequest?.action === 'SubmitPlan') {
+                const planData = (actionRequest?.args as Record<string, unknown>) || (interrupt.data as Record<string, unknown>) || {};
                 const planId = `plan-${pairIndex}-${interrupt.id || 'default'}`;
                 pairState.contentOrderCounter = (pairState.contentOrderCounter || 0) + 1;
                 setMessages((prev) =>
                   updateMessage(prev, currentAssistantMessageId, (msg) => ({
                     ...msg,
                     contentSegments: [
-                      ...(msg.contentSegments || []),
+                      ...((msg.contentSegments as Array<Record<string, unknown>>) || []),
                       { type: 'plan_approval', planApprovalId: planId, order: pairState.contentOrderCounter },
                     ],
                     planApprovals: {
-                      ...(msg.planApprovals || {}),
+                      ...((msg.planApprovals as Record<string, unknown>) || {}),
                       [planId]: {
                         ...planData,
                         interruptId: interrupt.id,
@@ -269,9 +287,9 @@ export default function SharedChatView() {
         setMessages((prev) => prev.map((m) => ({ ...m, isStreaming: false })));
         setLoading(false);
         setReplayDone(true);
-      } catch (e) {
+      } catch (e: unknown) {
         if (!cancelled) {
-          setError(e.message);
+          setError((e as Error).message);
           setLoading(false);
         }
       }
@@ -289,7 +307,7 @@ export default function SharedChatView() {
   }, [messages]);
 
   // Permissions
-  const permissions = metadata?.permissions || {};
+  const permissions = (metadata?.permissions || {}) as Record<string, unknown>;
   const canBrowseFiles = permissions.allow_files === true;
   const canDownload = permissions.allow_download === true;
 
@@ -301,7 +319,7 @@ export default function SharedChatView() {
     if (next && files.length === 0) {
       setFilesLoading(true);
       try {
-        const result = await getSharedFiles(shareToken);
+        const result = await getSharedFiles(shareToken!);
         setFiles(result.files || []);
       } catch { /* ignore */ }
       setFilesLoading(false);
@@ -310,20 +328,20 @@ export default function SharedChatView() {
 
   // Build API adapter for FilePanel — wraps public endpoints
   const fileApiAdapter = useMemo(() => ({
-    readFile: (path) => readSharedFile(shareToken, path),
-    downloadFile: (path) => downloadSharedFileAs(shareToken, path, 'blob'),
-    downloadFileAsArrayBuffer: (path) => downloadSharedFileAs(shareToken, path, 'arraybuffer'),
-    triggerDownload: (path) => downloadSharedFileAs(shareToken, path, 'download'),
+    readFile: (path: string) => readSharedFile(shareToken!, path),
+    downloadFile: (path: string) => downloadSharedFileAs(shareToken!, path, 'blob'),
+    downloadFileAsArrayBuffer: (path: string) => downloadSharedFileAs(shareToken!, path, 'arraybuffer'),
+    triggerDownload: (path: string) => downloadSharedFileAs(shareToken!, path, 'download'),
   }), [shareToken]);
 
   // Image downloader for WorkspaceProvider — enables inline image rendering in markdown
   const imageDownloader = useCallback(
-    (path) => downloadSharedFileAs(shareToken, path, 'blob'),
+    (path: string) => downloadSharedFileAs(shareToken!, path, 'blob'),
     [shareToken],
   );
 
   // Open file from chat (tool call artifacts, file mention cards)
-  const handleOpenFile = useCallback(async (filePath) => {
+  const handleOpenFile = useCallback(async (filePath: string) => {
     if (!canBrowseFiles) return;
     setShowFilePanel(true);
     setFilePanelTargetFile(filePath);
@@ -331,7 +349,7 @@ export default function SharedChatView() {
     if (files.length === 0) {
       setFilesLoading(true);
       try {
-        const result = await getSharedFiles(shareToken);
+        const result = await getSharedFiles(shareToken!);
         setFiles(result.files || []);
       } catch { /* ignore */ }
       setFilesLoading(false);
@@ -339,13 +357,13 @@ export default function SharedChatView() {
   }, [canBrowseFiles, files.length, shareToken]);
 
   // Drag-to-resize file panel (matches ChatView)
-  const handleDividerMouseDown = useCallback((e) => {
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingRef.current = true;
     const startX = e.clientX;
     const startWidth = rightPanelWidth;
 
-    const onMouseMove = (moveEvent) => {
+    const onMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingRef.current) return;
       const delta = startX - moveEvent.clientX;
       const newWidth = Math.max(280, Math.min(startWidth + delta, window.innerWidth * 0.6));
@@ -454,7 +472,7 @@ export default function SharedChatView() {
                         <span className="ml-2 text-sm" style={{ color: 'var(--color-text-tertiary)' }}>Loading conversation...</span>
                       </div>
                     ) : (
-                      <WorkspaceProvider downloadFile={imageDownloader}>
+                      <WorkspaceProvider workspaceId={null} downloadFile={imageDownloader}>
                       <MessageList
                         messages={messages}
                         readOnly={true}
@@ -520,9 +538,10 @@ export default function SharedChatView() {
           <div className="flex-shrink-0" style={{ width: rightPanelWidth }}>
             <FilePanel
               readOnly
+              workspaceId=""
               apiAdapter={fileApiAdapter}
               onClose={() => setShowFilePanel(false)}
-              files={files}
+              files={files.map(f => f.name)}
               filesLoading={filesLoading}
               targetFile={filePanelTargetFile}
               onTargetFileHandled={() => setFilePanelTargetFile(null)}
