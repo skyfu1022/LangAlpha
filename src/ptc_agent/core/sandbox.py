@@ -179,6 +179,7 @@ class PTCSandbox:
         self._reconnect_lock = asyncio.Lock()
         self._tool_refresh_lock = asyncio.Lock()
         self._reconnect_inflight: asyncio.Future[None] | None = None
+        self._download_semaphore = asyncio.Semaphore(4)
 
         # Track per-thread code dirs that have been created (avoids repeated mkdir)
         self._thread_dirs_created: set[str] = set()
@@ -2720,7 +2721,8 @@ class PTCSandbox:
     async def adownload_file_bytes(self, filepath: str) -> bytes | None:
         """Download raw bytes from sandbox.
 
-        This path is safe to retry automatically.
+        This path is safe to retry automatically. Concurrency is bounded by a
+        semaphore to limit event-loop pressure from the Daytona SDK multipart parser.
 
         Returns:
             Bytes if downloaded, or None if missing.
@@ -2731,11 +2733,12 @@ class PTCSandbox:
         await self._wait_ready()
 
         try:
-            return await self._daytona_call(
-                self.sandbox.fs.download_file,
-                filepath,
-                retry_policy=_DaytonaRetryPolicy.SAFE,
-            )
+            async with self._download_semaphore:
+                return await self._daytona_call(
+                    self.sandbox.fs.download_file,
+                    filepath,
+                    retry_policy=_DaytonaRetryPolicy.SAFE,
+                )
         except SandboxTransientError:
             raise
         except Exception as e:
@@ -2818,15 +2821,44 @@ class PTCSandbox:
     ) -> str | None:
         """Read a specific range of lines from a UTF-8 text file.
 
+        Uses sed via process.exec to extract lines server-side, avoiding
+        full-file download through the multipart parser hot path.
+
         Args:
             file_path: Path to the file.
             offset: Line offset (0-indexed).
             limit: Maximum number of lines.
         """
+        await self._wait_ready()
+        normalized = self.normalize_path(file_path)
+        start = max(0, offset)
+        start_line = start + 1  # sed is 1-indexed
+        end_line = start + limit
+        cmd = f"sed -n '{start_line},{end_line}p' {shlex.quote(normalized)}"
+
+        try:
+            result = await self._daytona_call(
+                self.sandbox.process.exec,
+                cmd,
+                timeout=30,
+                retry_policy=_DaytonaRetryPolicy.SAFE,
+            )
+            if result.exit_code != 0:
+                return await self._aread_file_range_fallback(file_path, offset, limit)
+            return result.result or ""
+        except SandboxTransientError:
+            raise
+        except Exception as e:
+            logger.debug("Failed to read file range", filepath=file_path, error=str(e))
+            return await self._aread_file_range_fallback(file_path, offset, limit)
+
+    async def _aread_file_range_fallback(
+        self, file_path: str, offset: int, limit: int
+    ) -> str | None:
+        """Fallback: download full file and slice (original behavior)."""
         content = await self.aread_file_text(file_path)
         if content is None:
             return None
-
         lines = content.splitlines()
         start = max(0, offset)
         end = start + limit
