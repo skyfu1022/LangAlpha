@@ -756,6 +756,7 @@ async def astream_flash_workflow(
     flash_graph = None
     persistence_service = None
 
+    ExecutionTracker.start_tracking()
     logger.info(f"[FLASH_CHAT] Starting flash workflow: thread_id={thread_id}")
 
     try:
@@ -1256,54 +1257,193 @@ async def astream_flash_workflow(
                     pass
 
     except Exception as e:
-        logger.exception(f"[FLASH_ERROR] thread_id={thread_id}: {e}")
-
         # Release burst slot on error (setup errors before background task starts)
         await release_burst_slot(user_id)
 
-        # Persist error
-        if persistence_service:
-            try:
-                execution_time = time.time() - start_time
-                per_call_records = (
-                    token_callback.per_call_records if token_callback else None
-                )
-                tool_usage = handler.get_tool_usage() if handler else None
-                sse_events = handler.get_sse_events() if handler else None
+        # Gather tracking data for persistence
+        _per_call_records = (
+            token_callback.per_call_records if token_callback else None
+        )
+        _tool_usage = handler.get_tool_usage() if handler else None
+        _sse_events = handler.get_sse_events() if handler else None
 
-                await persistence_service.persist_error(
-                    error_message=str(e),
-                    execution_time=execution_time,
-                    metadata={"msg_type": "flash", "is_byok": is_byok},
-                    per_call_records=per_call_records,
-                    tool_usage=tool_usage,
-                    sse_events=sse_events,
-                )
-            except Exception as persist_error:
-                logger.error(f"[FLASH_CHAT] Failed to persist error: {persist_error}")
+        # -----------------------------------------------------------------
+        # Smart error classification (ported from PTC handler)
+        # -----------------------------------------------------------------
 
-        # Yield error event
-        if handler:
-            error_event = handler._format_sse_event(
-                "error",
-                {
-                    "thread_id": thread_id,
-                    "error": str(e),
-                    "type": "workflow_error",
-                },
+        # Non-recoverable error types (code bugs, config issues)
+        non_recoverable_types = (
+            AttributeError,
+            NameError,
+            SyntaxError,
+            ImportError,
+            TypeError,
+            KeyError,
+        )
+
+        is_non_recoverable = isinstance(e, non_recoverable_types)
+
+        # Recoverable error patterns (transient issues)
+        import psycopg
+
+        is_postgres_connection = isinstance(
+            e, psycopg.OperationalError
+        ) and "server closed the connection" in str(e)
+
+        is_timeout = (
+            isinstance(e, TimeoutError)
+            or "timeout" in str(e).lower()
+            or "timed out" in str(e).lower()
+        )
+
+        is_network_issue = (
+            isinstance(e, ConnectionError)
+            or "connection" in str(e).lower()
+            or "network" in str(e).lower()
+            or "unreachable" in str(e).lower()
+            or "connection refused" in str(e).lower()
+        )
+
+        # API errors (transient server errors, rate limits, etc.)
+        is_api_error = False
+        error_str = str(e).lower()
+        error_type_name = type(e).__name__.lower()
+
+        api_error_indicators = [
+            "internal server error",
+            "api_error",
+            "system error",
+            "error code: 500",
+            "error code: 502",
+            "error code: 503",
+            "error code: 429",
+            "rate limit",
+            "service unavailable",
+            "bad gateway",
+            "gateway timeout",
+        ]
+
+        is_api_error = (
+            any(indicator in error_str for indicator in api_error_indicators)
+            or "internal" in error_type_name
+            or "api" in error_type_name
+            or "server" in error_type_name
+        )
+
+        is_recoverable = (
+            is_postgres_connection or is_timeout or is_network_issue or is_api_error
+        ) and not is_non_recoverable
+
+        MAX_RETRIES = 3
+
+        if is_recoverable:
+            tracker = WorkflowTracker.get_instance()
+            retry_count = await tracker.increment_retry_count(thread_id)
+
+            error_type = (
+                "connection_error"
+                if is_postgres_connection or is_network_issue
+                else "timeout_error"
+                if is_timeout
+                else "api_error"
+                if is_api_error
+                else "transient_error"
             )
-            yield error_event
-        else:
-            error_event = json.dumps(
-                {
+
+            if retry_count > MAX_RETRIES:
+                logger.error(
+                    f"[FLASH_CHAT] Max retries exceeded ({retry_count}/{MAX_RETRIES}) for "
+                    f"thread_id={thread_id}: {type(e).__name__}: {str(e)[:100]}"
+                )
+
+                if persistence_service:
+                    try:
+                        error_msg = f"Max retries exceeded ({retry_count}/{MAX_RETRIES}): {type(e).__name__}: {str(e)}"
+                        await persistence_service.persist_error(
+                            error_message=error_msg,
+                            errors=[error_msg],
+                            execution_time=time.time() - start_time,
+                            metadata={"msg_type": "flash", "is_byok": is_byok},
+                            per_call_records=_per_call_records,
+                            tool_usage=_tool_usage,
+                            sse_events=_sse_events,
+                        )
+                    except Exception as persist_error:
+                        logger.error(
+                            f"[FLASH_CHAT] Failed to persist error: {persist_error}"
+                        )
+
+                error_data = {
+                    "message": f"Workflow failed after {MAX_RETRIES} retry attempts",
+                    "error_type": error_type,
+                    "error_class": type(e).__name__,
+                    "retry_count": retry_count,
+                    "max_retries": MAX_RETRIES,
                     "thread_id": thread_id,
-                    "error": str(e),
-                    "type": "workflow_error",
                 }
-            )
-            yield f"event: error\ndata: {error_event}\n\n"
+                yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+            else:
+                logger.warning(
+                    f"[FLASH_CHAT] Recoverable error ({error_type}) for thread_id={thread_id} "
+                    f"(retry {retry_count}/{MAX_RETRIES}): "
+                    f"{type(e).__name__}: {str(e)[:100]}"
+                )
+
+                retry_data = {
+                    "message": "Temporary error occurred, you can retry or resume the workflow",
+                    "thread_id": thread_id,
+                    "auto_retry": True,
+                    "error_type": error_type,
+                    "error_class": type(e).__name__,
+                    "retry_count": retry_count,
+                    "max_retries": MAX_RETRIES,
+                }
+                yield f"event: retry\ndata: {json.dumps(retry_data)}\n\n"
+
+                await qr_db.update_thread_status(thread_id, "interrupted")
+
+        else:
+            # Non-recoverable error
+            logger.exception(f"[FLASH_ERROR] thread_id={thread_id}: {e}")
+
+            if persistence_service:
+                try:
+                    await persistence_service.persist_error(
+                        error_message=str(e),
+                        execution_time=time.time() - start_time,
+                        metadata={"msg_type": "flash", "is_byok": is_byok},
+                        per_call_records=_per_call_records,
+                        tool_usage=_tool_usage,
+                        sse_events=_sse_events,
+                    )
+                except Exception as persist_error:
+                    logger.error(f"[FLASH_CHAT] Failed to persist error: {persist_error}")
+
+            if handler:
+                error_event = handler._format_sse_event(
+                    "error",
+                    {
+                        "thread_id": thread_id,
+                        "error": str(e),
+                        "type": "workflow_error",
+                    },
+                )
+                yield error_event
+            else:
+                error_event = json.dumps(
+                    {
+                        "thread_id": thread_id,
+                        "error": str(e),
+                        "type": "workflow_error",
+                    }
+                )
+                yield f"event: error\ndata: {error_event}\n\n"
 
         raise
+
+    finally:
+        ExecutionTracker.stop_tracking()
+        logger.debug("Flash execution tracking stopped")
 
 
 async def _handle_sse_disconnect(
