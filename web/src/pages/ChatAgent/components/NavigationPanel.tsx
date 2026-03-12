@@ -4,6 +4,7 @@ import {
   Crown, Bot, Check, Circle, Loader2, X, ChevronsDown,
 } from 'lucide-react';
 import { ScrollArea } from '../../../components/ui/scroll-area';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import './NavigationPanel.css';
 
 interface WorkspaceEntry {
@@ -78,6 +79,7 @@ function NavigationPanel({
   hasMore,
   onLoadMore,
 }: NavigationPanelProps) {
+  const isMobile = useIsMobile();
   // Track expanded workspaces and threads via Sets
   // Current workspace is expanded by default
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
@@ -315,7 +317,7 @@ function NavigationPanel({
                                           e.stopPropagation();
                                           onRemoveAgent?.(agent.id);
                                         }}
-                                        className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-0 bg-transparent border-none cursor-pointer transition-opacity"
+                                        className={`flex-shrink-0 p-0 bg-transparent border-none cursor-pointer transition-opacity ${isMobile ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'}`}
                                         title="Remove agent"
                                       >
                                         <X className="h-3 w-3" style={{ color: 'var(--color-text-tertiary)' }} />

@@ -22,11 +22,13 @@
   text-align: left;
   max-width: 340px;
 }
-.file-mention-card:hover {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent-overlay);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 12px var(--color-accent-soft);
+@media (hover: hover) {
+  .file-mention-card:hover {
+    background: var(--color-accent-soft);
+    border-color: var(--color-accent-overlay);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 12px var(--color-accent-soft);
+  }
 }
 
 .file-mention-card-icon {

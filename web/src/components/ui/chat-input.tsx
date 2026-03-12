@@ -110,6 +110,7 @@ const formatFileSize = (bytes: number): string => {
 
 /* --- FILE PREVIEW CARD --- */
 const FilePreviewCard = ({ file, onRemove }: { file: FileAttachment; onRemove: (id: string) => void }) => {
+  const isMobilePreview = useIsMobile();
   const isImage = file.type.startsWith('image/') && file.preview;
 
   return (
@@ -143,7 +144,7 @@ const FilePreviewCard = ({ file, onRemove }: { file: FileAttachment; onRemove: (
       {/* Remove Button Overlay */}
       <button
         onClick={() => onRemove(file.id)}
-        className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/70 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+        className={`absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/70 rounded-full text-white transition-opacity ${isMobilePreview ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'}`}
       >
         <X className="w-3 h-3" />
       </button>
@@ -971,7 +972,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                   <img src={chartImage} alt="Chart" className="w-full h-full object-cover" />
                   <button
                     onClick={(e) => { e.stopPropagation(); onRemoveChartImage?.(); }}
-                    className="absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/70 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    className={`absolute top-1 right-1 p-1 bg-black/50 hover:bg-black/70 rounded-full text-white transition-opacity ${isMobile ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'}`}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -1055,7 +1056,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               onKeyDown={handleKeyDown}
               onBlur={handleBlur}
               placeholder={placeholder}
-              className="w-full bg-transparent border-0 outline-none text-[var(--color-text-primary)] text-sm placeholder:text-[var(--color-text-tertiary)] resize-none overflow-hidden leading-relaxed block"
+              className={`w-full bg-transparent border-0 outline-none text-[var(--color-text-primary)] ${isMobile ? 'text-base' : 'text-sm'} placeholder:text-[var(--color-text-tertiary)] resize-none overflow-hidden leading-relaxed block`}
               rows={1}
               disabled={disabled}
               style={{ minHeight: '1.5em' }}

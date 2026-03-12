@@ -1,6 +1,7 @@
 import React from 'react';
 import { Trash2, Edit2, Globe } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface ThreadCardProps {
   thread: Record<string, unknown>;
@@ -21,6 +22,7 @@ interface ThreadCardProps {
  */
 function ThreadCard({ thread, onClick, onDelete, onRename }: ThreadCardProps) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click when clicking delete icon
     if (onDelete) {
@@ -76,7 +78,7 @@ function ThreadCard({ thread, onClick, onDelete, onRename }: ThreadCardProps) {
 
       {/* Action icons - Show on hover */}
       {(onRename || onDelete) && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`flex items-center gap-1 transition-opacity ${isMobile ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'}`}>
           {/* Edit/Rename icon */}
           {onRename && (
             <button

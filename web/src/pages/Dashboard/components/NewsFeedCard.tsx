@@ -71,9 +71,10 @@ interface NewsRowProps {
   item: NewsItem;
   idx: number;
   onNewsClick?: (id: string | number) => void;
+  skipAnimation?: boolean;
 }
 
-function NewsRow({ item, idx, onNewsClick }: NewsRowProps) {
+function NewsRow({ item, idx, onNewsClick, skipAnimation }: NewsRowProps) {
   const sentiment = item.isHot ? 'positive' : 'neutral';
   const sentimentColor =
     sentiment === 'positive'
@@ -81,19 +82,24 @@ function NewsRow({ item, idx, onNewsClick }: NewsRowProps) {
       : 'var(--color-text-secondary)';
   const tickers = (item.tickers?.length ?? 0) > 0 ? item.tickers! : null;
 
+  const Wrapper = skipAnimation ? 'div' : motion.div;
+  const motionProps = skipAnimation ? {} : {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    transition: { delay: Math.min(idx, 10) * 0.05 },
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: idx * 0.05 }}
+    <Wrapper
+      {...motionProps}
       onClick={() => item.id != null && onNewsClick?.(item.id)}
       className="group flex items-center gap-3 sm:gap-4 px-2 py-2.5 sm:p-3 rounded-lg sm:rounded-xl border border-transparent transition-all cursor-pointer"
       style={{ backgroundColor: 'transparent' }}
-      onMouseEnter={(e) => {
+      onMouseEnter={(e: React.MouseEvent<HTMLDivElement>) => {
         e.currentTarget.style.backgroundColor = 'var(--color-bg-hover)';
         e.currentTarget.style.borderColor = 'var(--color-border-muted)';
       }}
-      onMouseLeave={(e) => {
+      onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
         e.currentTarget.style.backgroundColor = 'transparent';
         e.currentTarget.style.borderColor = 'transparent';
       }}
@@ -169,7 +175,7 @@ function NewsRow({ item, idx, onNewsClick }: NewsRowProps) {
           </div>
         )}
       </div>
-    </motion.div>
+    </Wrapper>
   );
 }
 
@@ -399,7 +405,7 @@ function NewsFeedCard({
             <EmptyState tab={activeTab} hasFilters={hasFilters} />
           ) : (
             filteredItems.map((item, idx) => (
-              <NewsRow key={item.id || idx} item={item} idx={idx} onNewsClick={onNewsClick} />
+              <NewsRow key={item.id || idx} item={item} idx={idx} onNewsClick={onNewsClick} skipAnimation={isMobile} />
             ))
           )}
         </motion.div>

@@ -74,9 +74,11 @@
   transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
-.nav-panel-dismiss-btn:hover {
-  opacity: 1;
-  background-color: var(--color-border-muted) !important;
+@media (hover: hover) {
+  .nav-panel-dismiss-btn:hover {
+    opacity: 1;
+    background-color: var(--color-border-muted) !important;
+  }
 }
 
 /* ====== Mobile touch targets ====== */

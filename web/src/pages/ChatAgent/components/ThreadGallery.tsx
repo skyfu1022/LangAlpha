@@ -596,8 +596,8 @@ function ThreadGallery({ workspaceId, onBack, onThreadSelect }: ThreadGalleryPro
             className="p-2 rounded-md transition-colors"
             style={{ color: 'var(--color-text-primary)' }}
             title={t('thread.backToWorkspaces')}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--color-border-muted)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
+            onMouseEnter={!isMobile ? (e) => { e.currentTarget.style.backgroundColor = 'var(--color-border-muted)'; } : undefined}
+            onMouseLeave={!isMobile ? (e) => { e.currentTarget.style.backgroundColor = ''; } : undefined}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>

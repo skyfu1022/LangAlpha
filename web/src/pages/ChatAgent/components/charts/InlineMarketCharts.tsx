@@ -164,8 +164,8 @@ export function InlineStockPriceCard({ artifact, onClick }: InlineCardProps): Re
       </div>
 
       {/* Sparkline */}
-      <div style={{ width: '100%', height: isMobile ? 48 : 64 }}>
-        <ResponsiveContainer width="100%" height="100%">
+      <div style={{ width: '100%', height: isMobile ? 48 : 64, minWidth: 0 }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <AreaChart data={sparkData} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -456,7 +456,7 @@ export function InlineSectorPerformanceCard({ artifact, onClick }: InlineCardPro
       <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: sz.headerFs, marginBottom: sz.sectionMb }}>
         {t('toolArtifact.sectorPerformance')}
       </div>
-      <ResponsiveContainer width="100%" height={chartHeight}>
+      <ResponsiveContainer width="100%" height={chartHeight} minWidth={0}>
         <BarChart
           data={chartData}
           layout="vertical"

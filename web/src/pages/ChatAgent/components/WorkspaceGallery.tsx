@@ -11,7 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import CreateWorkspaceModal from './CreateWorkspaceModal';
 import DeleteConfirmModal from './DeleteConfirmModal';
 import MorphingPageDots from '../../../components/ui/morphing-page-dots';
-import { getIsMobileSnapshot } from '@/hooks/useIsMobile';
+import { useIsMobile, getIsMobileSnapshot } from '@/hooks/useIsMobile';
 import { useWorkspaces } from '../../../hooks/useWorkspaces';
 import { queryKeys } from '../../../lib/queryKeys';
 import { createWorkspace, deleteWorkspace, getFlashWorkspace, updateWorkspace, reorderWorkspaces } from '../utils/api';
@@ -219,6 +219,7 @@ interface WorkspaceCardProps {
 
 function WorkspaceCard({ workspace, onSelect, onTogglePin, onDelete, prefetchThreads, index }: WorkspaceCardProps) {
   const { t, i18n } = useTranslation();
+  const isMobile = useIsMobile();
   const isFlash = workspace.status === 'flash';
 
   return (
@@ -228,7 +229,7 @@ function WorkspaceCard({ workspace, onSelect, onTogglePin, onDelete, prefetchThr
     >
       <div
         className="relative group h-full"
-        onMouseEnter={() => prefetchThreads?.(workspace.workspace_id)}
+        onMouseEnter={!isMobile ? () => prefetchThreads?.(workspace.workspace_id) : undefined}
       >
         <div
           onClick={() => onSelect(workspace.workspace_id, workspace.name, workspace.status)}
@@ -269,7 +270,7 @@ function WorkspaceCard({ workspace, onSelect, onTogglePin, onDelete, prefetchThr
 
         {/* Menu (no drag handle in normal mode) */}
         {!isFlash && (
-          <div className="absolute top-3 right-3 z-10 transition-opacity opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+          <div className={`absolute top-3 right-3 z-10 transition-opacity ${isMobile ? 'opacity-60' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'}`}>
             <CardMenu workspace={workspace} onTogglePin={onTogglePin} onDelete={onDelete} />
           </div>
         )}
