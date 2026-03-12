@@ -629,6 +629,27 @@ def get_max_stored_messages_per_agent(default: int = 100) -> int:
     )
 
 
+def get_subagent_collector_timeout(default: int = 120) -> int:
+    """Get initial subagent collector timeout in seconds (default: 120s)."""
+    return int(
+        get_nested_config("background_execution.subagent_collector_timeout", default)
+    )
+
+
+def get_subagent_orphan_collector_timeout(default: int = 600) -> int:
+    """Get orphan subagent collector idle timeout in seconds (default: 600s).
+
+    The orphan collector resets this timer whenever any pending task shows
+    progress (new captured events or tool call activity).  A subagent that is
+    actively working will never be abandoned; only truly idle tasks time out.
+    """
+    return int(
+        get_nested_config(
+            "background_execution.subagent_orphan_collector_timeout", default
+        )
+    )
+
+
 def get_event_storage_backend(default: str = "redis") -> str:
     """
     Get event storage backend (redis or memory).

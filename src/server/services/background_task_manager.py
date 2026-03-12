@@ -748,7 +748,7 @@ class BackgroundTaskManager:
         tasks: list,
         workspace_id: str,
         user_id: str,
-        timeout: float = 120.0,
+        timeout: float | None = None,
         is_byok: bool = False,
         sandbox=None,
     ) -> None:
@@ -758,6 +758,10 @@ class BackgroundTaskManager:
         a specific list of tasks (filtered by spawned_turn_index).
         """
         import copy
+
+        if timeout is None:
+            from src.config.settings import get_subagent_collector_timeout
+            timeout = float(get_subagent_collector_timeout())
 
         try:
             # Sync completion status: asyncio_task may be done but completed flag
@@ -855,14 +859,27 @@ class BackgroundTaskManager:
                         thread_id, workspace_id, user_id, sandbox=sandbox,
                     )
 
-            # Release claim on tasks that timed out so a future collector can retry
+            # Spawn orphan collector for tasks that outlived the initial deadline
             if pending:
-                for asyncio_task, task in pending.items():
-                    task.collector_response_id = None
-                    logger.warning(
-                        f"[SubagentCollector] Released claim on timed-out task "
-                        f"{task.display_id} for thread_id={thread_id}"
-                    )
+                orphaned_tasks = list(pending.values())
+                logger.info(
+                    f"[SubagentCollector] Spawning orphan collector for "
+                    f"{len(orphaned_tasks)} timed-out task(s), thread_id={thread_id}"
+                )
+                asyncio.create_task(
+                    self._collect_orphaned_subagent_results(
+                        thread_id=thread_id,
+                        response_id=response_id,
+                        main_chunks=main_chunks,
+                        prior_subagent_events=list(all_subagent_events),
+                        tasks=orphaned_tasks,
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        is_byok=is_byok,
+                        sandbox=sandbox,
+                    ),
+                    name=f"subagent-orphan-collector-{thread_id}",
+                )
 
             # Persist subagent token usage as separate rows
             # (only for tasks that were actually collected, not timed-out ones)
@@ -910,6 +927,179 @@ class BackgroundTaskManager:
                 await cache.delete(f"subagent:events:{thread_id}:{task.task_id}")
             except Exception:
                 pass
+
+    async def _collect_orphaned_subagent_results(
+        self,
+        thread_id: str,
+        response_id: str,
+        main_chunks: list[dict[str, Any]],
+        prior_subagent_events: list[dict],
+        tasks: list,
+        workspace_id: str,
+        user_id: str,
+        is_byok: bool = False,
+        sandbox=None,
+    ) -> None:
+        """Continue collecting results for tasks that outlived the initial collector.
+
+        Spawned as a fire-and-forget task when the initial collector's deadline
+        expires with pending tasks.  Uses an **idle timeout** instead of a fixed
+        deadline: the timer resets whenever any pending task shows progress
+        (new captured events or tool call activity).  This means a subagent that
+        is actively working will never be abandoned, while a truly stuck one is
+        cleaned up after the idle period.
+
+        The tasks' collector_response_id is already set (retained from the initial
+        collector), preventing other collectors from double-claiming.
+        """
+        import copy
+        from src.config.settings import get_subagent_orphan_collector_timeout
+
+        idle_timeout = float(get_subagent_orphan_collector_timeout())
+        # How often to poll for progress when no task completes
+        poll_interval = min(30.0, idle_timeout)
+
+        try:
+            all_subagent_events = list(prior_subagent_events)
+
+            # Sync completion: tasks may have finished between parent timeout and now
+            for task in tasks:
+                if not task.completed and task.asyncio_task and task.asyncio_task.done():
+                    task.completed = True
+                    try:
+                        task.result = task.asyncio_task.result()
+                    except Exception as e:
+                        task.error = str(e)
+                        task.result = {"success": False, "error": str(e)}
+
+            pending = {
+                t.asyncio_task: t for t in tasks
+                if t.is_pending and t.asyncio_task
+            }
+
+            # Collect events from tasks that completed in the gap
+            for task in tasks:
+                if task.completed and task.captured_events and task not in pending.values():
+                    for event in task.captured_events:
+                        enriched = copy.deepcopy(event)
+                        enriched["data"]["thread_id"] = thread_id
+                        all_subagent_events.append(enriched)
+
+            if not pending:
+                # All tasks completed between parent timeout and our start
+                if all_subagent_events:
+                    await self._persist_collected_events(
+                        main_chunks, all_subagent_events, response_id,
+                        thread_id, workspace_id, user_id, sandbox=sandbox,
+                    )
+                await self._persist_subagent_usage(
+                    response_id, tasks, thread_id, workspace_id, user_id,
+                    is_byok=is_byok,
+                )
+                await self._await_drain_and_cleanup_tasks(tasks, thread_id)
+                logger.info(
+                    f"[OrphanCollector] All tasks already completed for "
+                    f"thread_id={thread_id}"
+                )
+                return
+
+            logger.info(
+                f"[OrphanCollector] Waiting for {len(pending)} task(s) with "
+                f"{idle_timeout}s idle timeout, thread_id={thread_id}"
+            )
+
+            # Snapshot current activity state per pending task
+            last_activity: dict[asyncio.Task, tuple[float, int]] = {
+                at: (t.last_update_time, len(t.captured_events))
+                for at, t in pending.items()
+            }
+            last_progress_time = time.time()
+
+            while pending:
+                # Check idle deadline
+                if time.time() - last_progress_time > idle_timeout:
+                    logger.warning(
+                        f"[OrphanCollector] Idle timeout ({idle_timeout}s) for "
+                        f"thread_id={thread_id}, {len(pending)} tasks still pending"
+                    )
+                    break
+
+                done, _ = await asyncio.wait(
+                    pending.keys(),
+                    timeout=poll_interval,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if done:
+                    # Task completion is progress
+                    last_progress_time = time.time()
+
+                    for asyncio_task in done:
+                        task = pending.pop(asyncio_task)
+                        last_activity.pop(asyncio_task, None)
+                        if not task.completed:
+                            task.completed = True
+                            try:
+                                task.result = asyncio_task.result()
+                            except Exception as e:
+                                task.error = str(e)
+                                task.result = {"success": False, "error": str(e)}
+
+                        if task.captured_events:
+                            for event in task.captured_events:
+                                enriched = copy.deepcopy(event)
+                                enriched["data"]["thread_id"] = thread_id
+                                all_subagent_events.append(enriched)
+
+                        logger.info(
+                            f"[OrphanCollector] {task.display_id} completed, "
+                            f"persisting events for thread_id={thread_id}"
+                        )
+
+                    if all_subagent_events:
+                        await self._persist_collected_events(
+                            main_chunks, all_subagent_events, response_id,
+                            thread_id, workspace_id, user_id, sandbox=sandbox,
+                        )
+                else:
+                    # No task completed this cycle — check for activity progress
+                    for asyncio_task, task in pending.items():
+                        prev_update, prev_events = last_activity.get(
+                            asyncio_task, (0.0, 0)
+                        )
+                        cur_update = task.last_update_time
+                        cur_events = len(task.captured_events)
+                        if cur_update > prev_update or cur_events > prev_events:
+                            last_progress_time = time.time()
+                            last_activity[asyncio_task] = (cur_update, cur_events)
+
+            # Release claims on tasks that are truly idle
+            if pending:
+                for asyncio_task, task in pending.items():
+                    task.collector_response_id = None
+                    logger.warning(
+                        f"[OrphanCollector] Giving up on idle task "
+                        f"{task.display_id} for thread_id={thread_id} "
+                        f"(no progress for {idle_timeout}s)"
+                    )
+
+            collected_tasks = [t for t in tasks if t not in pending.values()]
+            if collected_tasks:
+                await self._persist_subagent_usage(
+                    response_id, collected_tasks, thread_id, workspace_id, user_id,
+                    is_byok=is_byok,
+                )
+                await self._await_drain_and_cleanup_tasks(collected_tasks, thread_id)
+
+        except Exception as e:
+            logger.error(
+                f"[OrphanCollector] Failed for thread_id={thread_id}: {e}",
+                exc_info=True,
+            )
+            # Release claims on failure so tasks aren't permanently locked
+            for task in tasks:
+                if task.collector_response_id == response_id:
+                    task.collector_response_id = None
 
     # ========== Workflow Completion & Error Handlers ==========
 
@@ -1266,6 +1456,7 @@ class BackgroundTaskManager:
                         f"[WorkflowPersistence] {bg_registry.pending_count} subagents still running, "
                         f"spawning result collector for thread_id={thread_id}"
                     )
+                    from src.config.settings import get_subagent_collector_timeout
                     asyncio.create_task(
                         self._collect_subagent_results_after_interrupt(
                             thread_id=thread_id,
@@ -1274,7 +1465,7 @@ class BackgroundTaskManager:
                             bg_registry=bg_registry,
                             workspace_id=workspace_id,
                             user_id=user_id,
-                            timeout=120.0,
+                            timeout=float(get_subagent_collector_timeout()),
                             is_byok=metadata.get("is_byok", False),
                         ),
                         name=f"subagent-collector-{thread_id}",
@@ -1430,14 +1621,26 @@ class BackgroundTaskManager:
                         thread_id, workspace_id, user_id,
                     )
 
-            # Release claim on tasks that timed out so a future collector can retry
+            # Spawn orphan collector for tasks that outlived the initial deadline
             if pending:
-                for asyncio_task, task in pending.items():
-                    task.collector_response_id = None
-                    logger.warning(
-                        f"[SubagentCollector] Released claim on timed-out task "
-                        f"{task.display_id} for thread_id={thread_id}"
-                    )
+                orphaned_tasks = list(pending.values())
+                logger.info(
+                    f"[SubagentCollector] Spawning orphan collector for "
+                    f"{len(orphaned_tasks)} timed-out task(s), thread_id={thread_id}"
+                )
+                asyncio.create_task(
+                    self._collect_orphaned_subagent_results(
+                        thread_id=thread_id,
+                        response_id=response_id,
+                        main_chunks=main_chunks,
+                        prior_subagent_events=list(all_subagent_events),
+                        tasks=orphaned_tasks,
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        is_byok=is_byok,
+                    ),
+                    name=f"subagent-orphan-collector-{thread_id}",
+                )
 
             # Persist subagent token usage as separate rows
             # (only for tasks that were actually collected, not timed-out ones)

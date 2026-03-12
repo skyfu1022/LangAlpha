@@ -67,6 +67,10 @@ background_execution:
   event_storage_backend: redis  # Backend for event buffering: "redis" or "memory"
   event_storage_fallback_to_memory: true  # Fallback to in-memory storage if Redis fails
 
+  # Subagent collector timeouts
+  subagent_collector_timeout: 120        # Initial collector deadline in seconds (waits for subagents after main turn ends)
+  subagent_orphan_collector_timeout: 600 # Idle timeout in seconds for orphan collector — resets on any subagent progress (new events, tool calls)
+
 
 # =============================================================================
 # REDIS CACHE CONFIGURATION
