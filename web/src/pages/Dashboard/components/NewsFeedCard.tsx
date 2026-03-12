@@ -97,9 +97,9 @@ function NewsRow({ item, idx, onNewsClick }: NewsRowProps) {
         e.currentTarget.style.borderColor = 'transparent';
       }}
     >
-      {/* Thumbnail */}
+      {/* Thumbnail — hidden on mobile */}
       {item.image && (
-        <div className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-lg">
+        <div className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-lg hidden sm:block">
           <img
             src={item.image}
             alt=""
@@ -176,7 +176,7 @@ function SkeletonRows({ count = 6 }: { count?: number }) {
   return Array.from({ length: count }).map((_, idx) => (
     <div key={idx} className="flex items-center gap-4 p-3 animate-pulse">
       <div
-        className="h-16 w-24 flex-shrink-0 rounded-lg"
+        className="h-16 w-24 flex-shrink-0 rounded-lg hidden sm:block"
         style={{ backgroundColor: 'var(--color-border-default)' }}
       />
       <div className="flex-1 min-w-0">

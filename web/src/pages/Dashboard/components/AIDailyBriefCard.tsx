@@ -187,11 +187,11 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
         onClick={handleCardClick}
       >
         {/* Decorative brain icon */}
-        <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none">
+        <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none hidden sm:block">
           <Newspaper size={120} style={{ color: 'var(--color-accent-primary)' }} />
         </div>
 
-        <div className="relative z-10 p-8 flex flex-col md:flex-row gap-8 items-start">
+        <div className="relative z-10 p-4 sm:p-8 flex flex-col md:flex-row gap-8 items-start">
           <div className="flex-1">
             {/* Badge + updated */}
             <div className="flex items-center gap-2 mb-4">
@@ -215,7 +215,7 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
 
             {/* Headline */}
             <h2
-              className="text-3xl font-bold mb-4 leading-tight"
+              className="text-xl sm:text-3xl font-bold mb-4 leading-tight"
               style={{ color: 'var(--color-text-primary)' }}
             >
               {latest.headline}
@@ -223,7 +223,7 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
 
             {/* Summary */}
             <p
-              className="mb-6 leading-relaxed max-w-2xl"
+              className="mb-6 leading-relaxed max-w-2xl line-clamp-3 sm:line-clamp-none"
               style={{ color: 'var(--color-text-secondary)' }}
             >
               {latest.summary}
