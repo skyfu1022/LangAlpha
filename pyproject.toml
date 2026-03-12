@@ -23,6 +23,7 @@ dependencies = [
     # Other dependencies
     "python-dotenv>=1.0.1",
     "crawl4ai>=0.4.0",
+    "playwright",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.1",
     "websockets>=12.0",

@@ -73,11 +73,14 @@ class CrawlerCircuitBreaker:
             success_threshold: Number of successes in HALF_OPEN to close circuit
         """
         self.failure_threshold = failure_threshold
+        self._base_recovery_timeout = recovery_timeout
+        self._max_recovery_timeout = 900.0  # 15 minutes cap
         self.recovery_timeout = recovery_timeout
         self.success_threshold = success_threshold
         self.state = CircuitState.CLOSED
         self.failure_count = 0
         self.success_count = 0
+        self._consecutive_opens = 0
         self.last_failure_time: Optional[float] = None
         self._lock = asyncio.Lock()
 
@@ -100,6 +103,8 @@ class CrawlerCircuitBreaker:
                 if self.success_count >= self.success_threshold:
                     logger.info("Circuit breaker closing after recovery")
                     self.state = CircuitState.CLOSED
+                    self._consecutive_opens = 0
+                    self.recovery_timeout = self._base_recovery_timeout
 
     async def record_failure(self, trigger_reset: Optional[Callable] = None) -> None:
         """
@@ -114,7 +119,16 @@ class CrawlerCircuitBreaker:
             should_open = False
 
             if self.state == CircuitState.HALF_OPEN:
-                logger.warning("Circuit breaker re-opening after half-open failure")
+                self._consecutive_opens += 1
+                self.recovery_timeout = min(
+                    self._base_recovery_timeout * (2 ** self._consecutive_opens),
+                    self._max_recovery_timeout,
+                )
+                logger.warning(
+                    f"Circuit breaker re-opening after half-open failure "
+                    f"(consecutive_opens={self._consecutive_opens}, "
+                    f"next_recovery={self.recovery_timeout}s)"
+                )
                 self.state = CircuitState.OPEN
                 should_open = True
             elif self.failure_count >= self.failure_threshold:
@@ -317,6 +331,8 @@ class SafeCrawlerWrapper:
             "circuit_state": self._circuit.state.value,
             "failure_count": self._circuit.failure_count,
             "success_count": self._circuit.success_count,
+            "consecutive_opens": self._circuit._consecutive_opens,
+            "recovery_timeout": self._circuit.recovery_timeout,
             "queue_count": self._queue_count,
             "max_queue": self._max_queue,
             "last_failure_time": self._circuit.last_failure_time,
