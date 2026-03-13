@@ -174,12 +174,10 @@ function Dashboard() {
       <NewsDetailModal newsId={selectedNewsId} onClose={() => setSelectedNewsId(null)} />
 
       {/* Insight Detail Modal */}
-      {selectedMarketInsightId && (
-        <InsightDetailModal
-          marketInsightId={selectedMarketInsightId}
-          onClose={() => setSelectedMarketInsightId(null)}
-        />
-      )}
+      <InsightDetailModal
+        marketInsightId={selectedMarketInsightId}
+        onClose={() => setSelectedMarketInsightId(null)}
+      />
 
       {/* Dialogs */}
       <ConfirmDialog

@@ -1707,11 +1707,10 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
         </div>
       </div>
 
-      {/* Right Side: Split Panel (File or Detail) */}
-      {/* On mobile, DetailPanel renders as a bottom sheet; FilePanel keeps the full-screen overlay */}
-      {isMobile && rightPanelType === 'detail' && (detailToolCall || detailPlanData) ? (
+      {/* Mobile detail bottom sheet — always rendered so exit animation works */}
+      {isMobile && (
         <MobileBottomSheet
-          open
+          open={rightPanelType === 'detail' && !!(detailToolCall || detailPlanData)}
           onClose={handleCloseDetailPanel}
           sizing="fixed"
           style={{ paddingBottom: 'calc(var(--bottom-tab-height, 0px) + 16px)' }}
@@ -1726,14 +1725,17 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
             />
           </Suspense>
         </MobileBottomSheet>
-      ) : isMobile ? (
+      )}
+
+      {/* Right Side: File panel (mobile overlay) or split panel (desktop) */}
+      {isMobile ? (
         /* Mobile: no AnimatePresence — avoids exit animation restart when React Router
            re-renders mid-exit (popstate triggers RR location change during framer-motion
            exit, causing the panel to briefly re-appear and slide out again).
            Entry animation + drag-to-dismiss still work via motion.div. */
-        rightPanelType && (
+        rightPanelType === 'file' && (
           <motion.div
-            key={rightPanelType}
+            key="file"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
@@ -1743,8 +1745,6 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
             onDragEnd={(_: unknown, info: PanInfo) => {
               if (info.velocity.x > 300 || info.offset.x > 120) {
                 setRightPanelType(null);
-                setDetailToolCall(null);
-                setDetailPlanData(null);
                 popPanelHistory();
               }
             }}
@@ -1753,36 +1753,26 @@ function ChatView({ workspaceId, threadId, onBack, workspaceName: initialWorkspa
           >
             <div className="flex-shrink-0 h-full" style={{ width: '100%' }}>
               <Suspense fallback={null}>
-                {rightPanelType === 'file' ? (
-                  <FilePanel
-                    workspaceId={workspaceId}
-                    onClose={() => { setRightPanelType(null); popPanelHistory(); }}
-                    targetFile={filePanelTargetFile}
-                    onTargetFileHandled={() => setFilePanelTargetFile(null)}
-                    targetDirectory={filePanelTargetDir}
-                    onTargetDirHandled={() => setFilePanelTargetDir(null)}
-                    files={workspaceFiles}
-                    filesLoading={filesLoading}
-                    filesError={filesError}
-                    onRefreshFiles={refreshFiles}
-                    onAddContext={handleAddContext}
-                    showSystemFiles={showSystemFiles}
-                    onToggleSystemFiles={() => {
-                      setShowSystemFiles((v) => {
-                        localStorage.setItem('filePanel.showSystemFiles', String(!v));
-                        return !v;
-                      });
-                    }}
-                  />
-                ) : rightPanelType === 'detail' && (detailToolCall || detailPlanData) ? (
-                  <DetailPanel
-                    toolCallProcess={detailToolCall}
-                    planData={detailPlanData}
-                    onClose={handleCloseDetailPanel}
-                    onOpenFile={handleOpenFileFromChat}
-                    onOpenSubagentTask={handleOpenSubagentTask}
-                  />
-                ) : null}
+                <FilePanel
+                  workspaceId={workspaceId}
+                  onClose={() => { setRightPanelType(null); popPanelHistory(); }}
+                  targetFile={filePanelTargetFile}
+                  onTargetFileHandled={() => setFilePanelTargetFile(null)}
+                  targetDirectory={filePanelTargetDir}
+                  onTargetDirHandled={() => setFilePanelTargetDir(null)}
+                  files={workspaceFiles}
+                  filesLoading={filesLoading}
+                  filesError={filesError}
+                  onRefreshFiles={refreshFiles}
+                  onAddContext={handleAddContext}
+                  showSystemFiles={showSystemFiles}
+                  onToggleSystemFiles={() => {
+                    setShowSystemFiles((v) => {
+                      localStorage.setItem('filePanel.showSystemFiles', String(!v));
+                      return !v;
+                    });
+                  }}
+                />
               </Suspense>
             </div>
           </motion.div>
