@@ -938,9 +938,10 @@ const MessageContentSegments = memo(function MessageContentSegments({ segments, 
     for (const segment of sorted) {
       if (segment.type === 'text') {
         if (currentTextGroup) {
+          const prev: ContentSegmentRecord = currentTextGroup;
           currentTextGroup = {
-            ...currentTextGroup,
-            content: (currentTextGroup.content || '') + (segment.content || ''),
+            ...prev,
+            content: (prev.content || '') + (segment.content || ''),
             lastOrder: segment.order,
           };
           // Replace the last entry (the current text group) with the updated one

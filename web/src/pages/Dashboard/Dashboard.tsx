@@ -58,7 +58,6 @@ function Dashboard() {
     setShowOnboardingDialog,
     isCreatingWorkspace,
     navigateToOnboarding,
-    navigateToModifyPreferences
   } = useOnboarding();
 
   const watchlist = useWatchlistData();
