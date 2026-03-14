@@ -281,6 +281,15 @@ async def _handle_send_message(
     agent_mode = request.agent_mode or "ptc"
     workspace_id = request.workspace_id
 
+    # Resolve workspace_id from thread if not provided
+    if not workspace_id and thread_id:
+        thread_record = await get_thread_by_id(thread_id)
+        if thread_record:
+            workspace_id = str(thread_record["workspace_id"])
+            logger.info(
+                f"[CHAT] Resolved workspace_id={workspace_id} from thread_id={thread_id}"
+            )
+
     # Validate that agent_config is initialized
     if not hasattr(setup, "agent_config") or setup.agent_config is None:
         raise HTTPException(

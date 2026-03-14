@@ -12,6 +12,17 @@ This skill provides 3 tools for creating and managing scheduled automations:
 
 You should call these tools directly instead of using ExecuteCode tool.
 
+## Before Creating an Automation
+
+**Always confirm with the user before calling `create_automation`.** Automations run autonomously on a schedule, so getting the details right matters. If the user's request is unclear or underspecified, ask to clarify:
+
+- **Schedule** — "Every morning" is ambiguous. Confirm the exact time and days (e.g. "Weekdays at 9 AM in your timezone?").
+- **Thread strategy** — If the task involves ongoing analysis or follow-ups, ask whether they want results in a fresh thread each time, a single persistent thread, or the current conversation.
+- **Instruction** — The instruction runs without further user input. If the user gives a vague prompt like "check my portfolio", refine it: what tickers? what metrics? what format?
+- **Delivery** — If the user hasn't mentioned how they want to receive results, ask if they want delivery (e.g. Slack) or just in-app.
+
+Summarize what you're about to create and get a "yes" before calling the tool.
+
 ---
 
 ## Tool 1: check_automations
@@ -44,7 +55,16 @@ Create a new scheduled automation.
 | `instruction` | str | Yes | The prompt the agent will execute on each run |
 | `schedule` | str | Yes | Cron expression or ISO datetime (see below) |
 | `description` | str | No | Optional description |
-| `agent_mode` | str | No | `"flash"` (fast, default) or `"ptc"` (full sandbox) |
+| `thread` | str | No | `"new"` (default), `"persistent"`, or `"current"` (see Thread Strategy) |
+| `delivery` | str | No | Comma-separated delivery methods (e.g. `"slack"`) |
+
+### Thread Strategy
+
+| Mode | Behavior |
+|------|----------|
+| `"new"` | Fresh thread each run — no conversation history carried over (default) |
+| `"persistent"` | Single dedicated thread — all runs share conversation history |
+| `"current"` | Pins to the current conversation thread — automation runs continue here |
 
 ### Schedule Format
 
@@ -63,7 +83,6 @@ create_automation(
     name="Morning Market Brief",
     instruction="Summarize overnight market moves, top gainers/losers, and any news for my watchlist.",
     schedule="0 9 * * 1-5",
-    agent_mode="flash",
 )
 
 # One-time earnings reminder
@@ -72,6 +91,30 @@ create_automation(
     instruction="Analyze AAPL ahead of earnings: recent price action, analyst expectations, key metrics to watch.",
     schedule="2026-04-30T08:00:00",
     description="Pre-earnings analysis for Apple Q2 2026",
+)
+
+# Daily report delivered to Slack
+create_automation(
+    name="Morning Market Brief",
+    instruction="Summarize overnight market moves for my watchlist.",
+    schedule="0 9 * * 1-5",
+    delivery="slack",
+)
+
+# Automation with persistent thread (all runs share history)
+create_automation(
+    name="Weekly Portfolio Review",
+    instruction="Review my portfolio performance and update the analysis.",
+    schedule="0 9 * * 1",
+    thread="persistent",
+)
+
+# Automation that continues in the current conversation
+create_automation(
+    name="Hourly Price Check",
+    instruction="Check AAPL, MSFT, GOOGL prices and alert if any moved >2%.",
+    schedule="0 * * * *",
+    thread="current",
 )
 ```
 
@@ -89,13 +132,15 @@ Manage an existing automation.
 | `description` | str | No | New description (update only) |
 | `instruction` | str | No | New prompt (update only) |
 | `schedule` | str | No | New cron or ISO datetime (update only) |
-| `agent_mode` | str | No | New agent mode (update only) |
+| `thread` | str | No | `"new"`, `"persistent"`, or `"current"` (update only) |
+| `delivery` | str | No | Comma-separated delivery methods (update only) |
+| `remove_delivery` | bool | No | Set to `true` to remove delivery config (update only) |
 
 ### Action Reference
 
 | Action | Description |
 |--------|-------------|
-| `update` | Change name, description, instruction, schedule, or agent_mode |
+| `update` | Change name, description, instruction, schedule, thread strategy, or delivery |
 | `pause` | Temporarily stop the automation from running |
 | `resume` | Re-enable a paused automation |
 | `trigger` | Run the automation immediately (outside normal schedule) |
@@ -119,6 +164,12 @@ manage_automation(
     action="update",
     schedule="0 8 * * 1",
 )
+
+# Switch an automation to a persistent thread
+manage_automation(automation_id="abc-123", action="update", thread="persistent")
+
+# Remove delivery from an automation
+manage_automation(automation_id="abc-123", action="update", remove_delivery=True)
 
 # Delete an automation
 manage_automation(automation_id="abc-123", action="delete")

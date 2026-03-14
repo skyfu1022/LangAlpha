@@ -1058,6 +1058,8 @@ async def astream_flash_workflow(
                 "thread_id": thread_id,
                 "user_id": user_id,
                 "workspace_id": workspace_id,
+                "agent_mode": "flash",
+                "timezone": timezone_str,
             },
             "recursion_limit": 100,
             "tags": langsmith_tags,
@@ -2067,6 +2069,8 @@ async def astream_ptc_workflow(
                 "thread_id": thread_id,
                 "user_id": user_id,  # For user-scoped tools
                 "workspace_id": workspace_id,  # For workspace-scoped tools
+                "agent_mode": "ptc",
+                "timezone": timezone_str,
             },
             "recursion_limit": 1000,
             "tags": langsmith_tags,

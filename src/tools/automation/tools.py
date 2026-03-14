@@ -48,6 +48,12 @@ def _get_timezone(config: RunnableConfig) -> str:
     return configurable.get("timezone") or "UTC"
 
 
+def _get_agent_mode(config: RunnableConfig) -> str:
+    """Extract agent_mode from the runnable config, defaulting to 'flash'."""
+    configurable = config.get("configurable", {})
+    return configurable.get("agent_mode") or "flash"
+
+
 def _parse_schedule(schedule: str) -> dict[str, Any]:
     """Auto-detect cron vs one-time from schedule string.
 
@@ -177,6 +183,8 @@ async def check_automations(
                         else None
                     ),
                     "agent_mode": automation["agent_mode"],
+                    "thread_strategy": automation.get("thread_strategy", "new"),
+                    "conversation_thread_id": automation.get("conversation_thread_id"),
                     "status": automation["status"],
                     "next_run_at": automation.get("next_run_at"),
                     "last_run_at": automation.get("last_run_at"),
@@ -221,31 +229,58 @@ async def create_automation(
     ],
     config: RunnableConfig,
     description: Annotated[str | None, "Optional description"] = None,
-    agent_mode: Annotated[
-        str, "'flash' (fast, default) or 'ptc' (full sandbox)"
-    ] = "flash",
+    thread: Annotated[
+        str | None,
+        "Thread mode: 'new' (fresh thread each run, default), "
+        "'persistent' (single thread for all runs), "
+        "'current' (continue in this conversation thread)",
+    ] = None,
+    delivery: Annotated[str | None, "Comma-separated delivery methods (e.g. 'slack'). Omit to skip delivery."] = None,
 ) -> tuple[str, dict]:
     """Create a new scheduled automation."""
     try:
         user_id = _get_user_id(config)
         workspace_id = _get_workspace_id(config)
         tz = _get_timezone(config)
+        effective_mode = _get_agent_mode(config)
 
         # Parse schedule string into trigger_type + cron/datetime
         schedule_info = _parse_schedule(schedule)
+
+        # Resolve thread strategy
+        thread_strategy = "new"
+        conversation_thread_id = None
+        if thread == "persistent":
+            thread_strategy = "continue"
+        elif thread == "current":
+            thread_strategy = "continue"
+            conversation_thread_id = config.get("configurable", {}).get("thread_id")
 
         # Build creation data
         data: dict[str, Any] = {
             "name": name,
             "instruction": instruction,
             "description": description,
-            "agent_mode": agent_mode,
+            "agent_mode": effective_mode,
             "timezone": tz,
             "workspace_id": workspace_id,
-            "thread_strategy": "new",
+            "thread_strategy": thread_strategy,
+            "conversation_thread_id": conversation_thread_id,
             "max_failures": 3,
             **schedule_info,
         }
+
+        delivery_warning = None
+        if delivery:
+            data["delivery_config"] = {
+                "methods": [m.strip() for m in delivery.split(",")],
+            }
+            from src.config import settings
+            if not settings.AUTOMATION_WEBHOOK_URL:
+                delivery_warning = (
+                    "Delivery methods were saved, but AUTOMATION_WEBHOOK_URL is not configured. "
+                    "Delivery will not work until the webhook URL is set."
+                )
 
         automation = await auto_handler.create_automation(user_id, data)
 
@@ -263,6 +298,7 @@ async def create_automation(
                     else None
                 ),
                 "next_run_at": automation.get("next_run_at"),
+                **({"warning": delivery_warning} if delivery_warning else {}),
             }
         )
         artifact = {
@@ -299,10 +335,12 @@ async def manage_automation(
     schedule: Annotated[
         str | None, "New cron or ISO datetime schedule (action='update' only)"
     ] = None,
-    agent_mode: Annotated[
+    thread: Annotated[
         str | None,
-        "New agent mode: 'flash' or 'ptc' (action='update' only)",
+        "Thread mode: 'new', 'persistent', or 'current' (update only)",
     ] = None,
+    delivery: Annotated[str | None, "Comma-separated delivery methods (update only, e.g. 'slack')"] = None,
+    remove_delivery: Annotated[bool, "Set to true to remove delivery configuration (update only)"] = False,
 ) -> dict[str, Any]:
     """Manage an existing automation: update settings, pause, resume, trigger immediately, or delete."""
     try:
@@ -349,8 +387,28 @@ async def manage_automation(
                 update_data["description"] = description
             if instruction is not None:
                 update_data["instruction"] = instruction
-            if agent_mode is not None:
-                update_data["agent_mode"] = agent_mode
+            delivery_warning = None
+            if remove_delivery:
+                update_data["delivery_config"] = {}
+            elif delivery:
+                update_data["delivery_config"] = {
+                    "methods": [m.strip() for m in delivery.split(",")],
+                }
+                from src.config import settings
+                if not settings.AUTOMATION_WEBHOOK_URL:
+                    delivery_warning = (
+                        "Delivery methods were saved, but AUTOMATION_WEBHOOK_URL is not configured. "
+                        "Delivery will not work until the webhook URL is set."
+                    )
+            if thread is not None:
+                if thread == "new":
+                    update_data["thread_strategy"] = "new"
+                    update_data["conversation_thread_id"] = None
+                elif thread == "persistent":
+                    update_data["thread_strategy"] = "continue"
+                elif thread == "current":
+                    update_data["thread_strategy"] = "continue"
+                    update_data["conversation_thread_id"] = config.get("configurable", {}).get("thread_id")
             if schedule is not None:
                 schedule_info = _parse_schedule(schedule)
                 update_data.update(schedule_info)
@@ -358,7 +416,7 @@ async def manage_automation(
             if not update_data:
                 return {
                     "error": "No fields to update. Provide at least one of: "
-                    "name, description, instruction, schedule, agent_mode."
+                    "name, description, instruction, schedule, thread, delivery."
                 }
 
             result = await auto_handler.update_automation(
@@ -373,6 +431,7 @@ async def manage_automation(
                     "name": result["name"],
                     "status": result["status"],
                     "next_run_at": result.get("next_run_at"),
+                    **({"warning": delivery_warning} if delivery_warning else {}),
                 }
             )
 
