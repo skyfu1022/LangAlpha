@@ -326,6 +326,11 @@ class PTCSandbox:
         # Surface snapshot name from provider metadata for MCP server init
         snapshot_name = getattr(self.runtime, "snapshot_name", None)
 
+        # When no snapshot is available (disabled, creation failed, etc.) the
+        # sandbox is a bare image without application packages — install them.
+        if not snapshot_name:
+            await self._install_dependencies()
+
         logger.info("Sandbox workspace ready", sandbox_id=self.sandbox_id)
         return snapshot_name
 
@@ -1558,18 +1563,10 @@ class PTCSandbox:
         )
 
     async def _install_dependencies(self) -> None:
-        """Install required Python packages in sandbox."""
-        logger.info("Installing dependencies")
+        """Install required Python packages in sandbox (no-snapshot fallback)."""
+        logger.info("Installing dependencies (no snapshot)")
 
-        dependencies = [
-            "mcp",
-            "pandas",
-            "requests",
-            "aiohttp",
-            "httpx[http2]",
-        ]
-
-        install_cmd = f"uv pip install -q {' '.join(dependencies)}"
+        install_cmd = f"uv pip install -q {' '.join(DEFAULT_DEPENDENCIES)}"
 
         try:
             assert self.runtime is not None
