@@ -97,8 +97,11 @@ pythonpath = ["."]
 asyncio_mode = "strict"
 markers = [
     "integration: hits real APIs — requires env vars (deselect with '-m \"not integration\"')",
+    "slow: long-running tests (stress, concurrency) -- opt-in",
+    "provider_docker: tests requiring Docker daemon",
+    "provider_daytona: tests requiring Daytona API key",
 ]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration and not slow'"
 
 [dependency-groups]
 dev = [

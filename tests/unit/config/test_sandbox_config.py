@@ -53,10 +53,12 @@ class TestDockerConfigDefaults:
     def test_defaults(self):
         cfg = DockerConfig()
         assert cfg.image == "langalpha-sandbox:latest"
-        assert cfg.working_dir == "/home/daytona"
+        assert cfg.working_dir == "/home/workspace"
         assert cfg.memory_limit == "4g"
         assert cfg.cpu_count == 2.0
         assert cfg.dev_mode is False
+        assert cfg.host_work_dir is None
+        assert cfg.network_mode == "bridge"
 
     def test_custom(self):
         cfg = DockerConfig(image="custom:latest", memory_limit="8g", dev_mode=True)
@@ -107,6 +109,13 @@ class TestCoreConfigDaytonaShim:
 
 
 class TestCreateSandboxConfigNewFormat:
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        monkeypatch.delenv("SANDBOX_PROVIDER", raising=False)
+        monkeypatch.delenv("DOCKER_SANDBOX_IMAGE", raising=False)
+        monkeypatch.delenv("DOCKER_SANDBOX_DEV_MODE", raising=False)
+        monkeypatch.delenv("DOCKER_SANDBOX_HOST_DIR", raising=False)
+
     def test_reads_sandbox_key(self):
         config_data = {
             "sandbox": {
@@ -161,6 +170,13 @@ class TestCreateSandboxConfigNewFormat:
 
 
 class TestCreateSandboxConfigBackwardCompat:
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        monkeypatch.delenv("SANDBOX_PROVIDER", raising=False)
+        monkeypatch.delenv("DOCKER_SANDBOX_IMAGE", raising=False)
+        monkeypatch.delenv("DOCKER_SANDBOX_DEV_MODE", raising=False)
+        monkeypatch.delenv("DOCKER_SANDBOX_HOST_DIR", raising=False)
+
     def test_reads_daytona_key(self):
         """Top-level 'daytona:' key should produce SandboxConfig with provider='daytona'."""
         config_data = {

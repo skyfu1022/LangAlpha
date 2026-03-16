@@ -50,7 +50,7 @@ class TestDaytonaRuntime:
         sandbox.stop = AsyncMock()
         sandbox.delete = AsyncMock()
         sandbox.archive = AsyncMock()
-        sandbox.get_work_dir = MagicMock(return_value="/home/daytona")
+        sandbox.get_work_dir = MagicMock(return_value="/home/workspace")
         sandbox.cpu = "2"
         sandbox.memory = "4096"
         sandbox.created_at = "2026-01-01T00:00:00Z"
@@ -95,7 +95,7 @@ class TestDaytonaRuntime:
 
     @pytest.mark.asyncio
     async def test_list_files_delegates(self, runtime, mock_sdk_sandbox):
-        files = await runtime.list_files("/home/daytona")
+        files = await runtime.list_files("/home/workspace")
         mock_sdk_sandbox.fs.list_files.assert_called_once()
         assert files == []
 
@@ -135,7 +135,7 @@ class TestDaytonaRuntime:
         assert runtime.id == "daytona-123"
 
     def test_working_dir_property(self, runtime):
-        assert runtime.working_dir == "/home/daytona"
+        assert runtime.working_dir == "/home/workspace"
 
     def test_capabilities_includes_archive_and_snapshot(self, runtime):
         caps = runtime.capabilities
@@ -149,7 +149,7 @@ class TestDaytonaRuntime:
     async def test_get_metadata(self, runtime):
         meta = await runtime.get_metadata()
         assert meta["id"] == "daytona-123"
-        assert meta["working_dir"] == "/home/daytona"
+        assert meta["working_dir"] == "/home/workspace"
 
 
 # ---------------------------------------------------------------------------
@@ -166,13 +166,13 @@ class TestDaytonaProvider:
         mock_sandbox = MagicMock()
         mock_sandbox.id = "new-123"
         mock_sandbox.state = "started"
-        mock_sandbox.get_work_dir = MagicMock(return_value="/home/daytona")
+        mock_sandbox.get_work_dir = MagicMock(return_value="/home/workspace")
         client.create = AsyncMock(return_value=mock_sandbox)
 
         mock_existing = MagicMock()
         mock_existing.id = "existing-456"
         mock_existing.state = "started"
-        mock_existing.get_work_dir = MagicMock(return_value="/home/daytona")
+        mock_existing.get_work_dir = MagicMock(return_value="/home/workspace")
         client.get = AsyncMock(return_value=mock_existing)
 
         client.close = AsyncMock()
@@ -190,6 +190,7 @@ class TestDaytonaProvider:
 
         provider = DaytonaProvider.__new__(DaytonaProvider)
         provider._config = DaytonaConfig(api_key="test-key")
+        provider._working_dir = "/home/workspace"
         provider._client = mock_daytona_client
 
         # Bypass snapshot logic for this unit test
@@ -208,6 +209,7 @@ class TestDaytonaProvider:
 
         provider = DaytonaProvider.__new__(DaytonaProvider)
         provider._config = DaytonaConfig(api_key="test-key")
+        provider._working_dir = "/home/workspace"
         provider._client = mock_daytona_client
         runtime = await provider.get("existing-456")
         assert isinstance(runtime, DaytonaRuntime)
@@ -219,6 +221,7 @@ class TestDaytonaProvider:
 
         provider = DaytonaProvider.__new__(DaytonaProvider)
         provider._config = DaytonaConfig(api_key="test-key")
+        provider._working_dir = "/home/workspace"
         provider._client = mock_daytona_client
         await provider.close()
         mock_daytona_client.close.assert_called_once()

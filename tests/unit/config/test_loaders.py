@@ -53,7 +53,7 @@ def _full_config_dict(**overrides) -> dict:
             "file": "logs/test.log",
         },
         "filesystem": {
-            "allowed_directories": ["/home/daytona", "/tmp"],
+            "allowed_directories": ["/home/workspace", "/tmp"],
         },
     }
     base.update(overrides)
@@ -252,10 +252,14 @@ class TestLoadFromDictMCP:
 
 
 class TestLoadFromDictFilesystem:
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        monkeypatch.delenv("SANDBOX_PROVIDER", raising=False)
+
     def test_filesystem_defaults(self):
         config = load_from_dict(_full_config_dict())
-        assert config.filesystem.working_directory == "/home/daytona"
-        assert config.filesystem.allowed_directories == ["/home/daytona", "/tmp"]
+        assert config.filesystem.working_directory == "/home/workspace"
+        assert config.filesystem.allowed_directories == ["/home/workspace", "/tmp"]
 
     def test_filesystem_with_custom_working_dir(self):
         """Custom working_directory from config should be applied."""

@@ -117,39 +117,40 @@ class TestRuntimeStateMachine:
 class TestRuntimeExec:
     """SandboxRuntime.exec() — shell command execution."""
 
-    async def test_simple_command(self, sandbox_runtime):
-        result = await sandbox_runtime.exec("echo hello")
+    async def test_simple_command(self, shared_runtime):
+        result = await shared_runtime.exec("echo hello")
         assert isinstance(result, ExecResult)
         assert result.exit_code == 0
         assert "hello" in result.stdout
 
-    async def test_exit_code_nonzero(self, sandbox_runtime):
-        result = await sandbox_runtime.exec("exit 42")
+    async def test_exit_code_nonzero(self, shared_runtime):
+        result = await shared_runtime.exec("exit 42")
         assert result.exit_code == 42
 
-    async def test_command_with_env_var(self, sandbox_runtime):
-        result = await sandbox_runtime.exec("echo $TEST_VAR")
+    async def test_command_with_env_var(self, shared_runtime):
+        result = await shared_runtime.exec("echo $TEST_VAR")
         assert "hello" in result.stdout
 
-    async def test_multiline_output(self, sandbox_runtime):
-        result = await sandbox_runtime.exec("echo line1 && echo line2 && echo line3")
+    async def test_multiline_output(self, shared_runtime):
+        result = await shared_runtime.exec("echo line1 && echo line2 && echo line3")
         lines = result.stdout.strip().split("\n")
         assert len(lines) == 3
 
     async def test_exec_on_stopped_runtime_raises(self, sandbox_runtime):
+        """Uses sandbox_runtime (own container) because it stops the sandbox."""
         await sandbox_runtime.stop()
         with pytest.raises(Exception):  # DaytonaError, RuntimeError, or SandboxTransientError
             await sandbox_runtime.exec("echo hello")
         # Restart for cleanup
         await sandbox_runtime.start()
 
-    async def test_mkdir_and_ls(self, sandbox_runtime):
-        await sandbox_runtime.exec("mkdir -p testdir/sub")
-        result = await sandbox_runtime.exec("ls testdir")
+    async def test_mkdir_and_ls(self, shared_runtime):
+        await shared_runtime.exec("mkdir -p testdir_exec/sub")
+        result = await shared_runtime.exec("ls testdir_exec")
         assert "sub" in result.stdout
 
-    async def test_pipe_commands(self, sandbox_runtime):
-        result = await sandbox_runtime.exec("echo 'a b c' | wc -w")
+    async def test_pipe_commands(self, shared_runtime):
+        result = await shared_runtime.exec("echo 'a b c' | wc -w")
         assert "3" in result.stdout
 
 
@@ -161,53 +162,54 @@ class TestRuntimeExec:
 class TestRuntimeCodeRun:
     """SandboxRuntime.code_run() — Python code execution."""
 
-    async def test_simple_python(self, sandbox_runtime):
-        result = await sandbox_runtime.code_run("print(2 + 2)")
+    async def test_simple_python(self, shared_runtime):
+        result = await shared_runtime.code_run("print(2 + 2)")
         assert isinstance(result, CodeRunResult)
         assert result.exit_code == 0
         assert "4" in result.stdout
 
-    async def test_python_with_env(self, sandbox_runtime):
-        result = await sandbox_runtime.code_run(
+    async def test_python_with_env(self, shared_runtime):
+        result = await shared_runtime.code_run(
             "import os; print(os.environ.get('CUSTOM_VAR', 'missing'))",
             env={"CUSTOM_VAR": "injected"},
         )
         assert "injected" in result.stdout
 
-    async def test_python_error(self, sandbox_runtime):
-        result = await sandbox_runtime.code_run("raise ValueError('test error')")
+    async def test_python_error(self, shared_runtime):
+        result = await shared_runtime.code_run("raise ValueError('test error')")
         assert result.exit_code != 0
         assert "ValueError" in result.stderr or "ValueError" in result.stdout
 
-    async def test_python_imports(self, sandbox_runtime):
-        result = await sandbox_runtime.code_run(
+    async def test_python_imports(self, shared_runtime):
+        result = await shared_runtime.code_run(
             "import json; print(json.dumps({'key': 'value'}))"
         )
         assert result.exit_code == 0
         assert '"key"' in result.stdout
 
-    async def test_python_file_creation(self, sandbox_runtime):
+    async def test_python_file_creation(self, shared_runtime):
         """Code can create files in the working directory."""
-        wd = await sandbox_runtime.fetch_working_dir()
-        await sandbox_runtime.code_run(
-            f"with open('{wd}/output.txt', 'w') as f: f.write('hello from python')"
+        wd = await shared_runtime.fetch_working_dir()
+        await shared_runtime.code_run(
+            f"with open('{wd}/coderun_output.txt', 'w') as f: f.write('hello from python')"
         )
-        content = await sandbox_runtime.download_file(f"{wd}/output.txt")
+        content = await shared_runtime.download_file(f"{wd}/coderun_output.txt")
         assert content == b"hello from python"
 
-    async def test_python_multiline(self, sandbox_runtime):
+    async def test_python_multiline(self, shared_runtime):
         code = """\
 data = [1, 2, 3, 4, 5]
 total = sum(data)
 avg = total / len(data)
 print(f"sum={total}, avg={avg}")
 """
-        result = await sandbox_runtime.code_run(code)
+        result = await shared_runtime.code_run(code)
         assert result.exit_code == 0
         assert "sum=15" in result.stdout
         assert "avg=3.0" in result.stdout
 
     async def test_code_run_on_stopped_runtime_raises(self, sandbox_runtime):
+        """Uses sandbox_runtime (own container) because it stops the sandbox."""
         await sandbox_runtime.stop()
         with pytest.raises(Exception):  # DaytonaError, RuntimeError, or SandboxTransientError
             await sandbox_runtime.code_run("print('hello')")
@@ -222,58 +224,58 @@ print(f"sum={total}, avg={avg}")
 class TestRuntimeFileIO:
     """SandboxRuntime file operations: upload, download, list, batch upload."""
 
-    async def test_upload_and_download(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
+    async def test_upload_and_download(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
         content = b"Hello, sandbox!"
-        await sandbox_runtime.upload_file(content, f"{wd}/test.txt")
-        downloaded = await sandbox_runtime.download_file(f"{wd}/test.txt")
+        await shared_runtime.upload_file(content, f"{wd}/fio_test.txt")
+        downloaded = await shared_runtime.download_file(f"{wd}/fio_test.txt")
         assert downloaded == content
 
-    async def test_upload_creates_parent_dirs(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
-        await sandbox_runtime.upload_file(b"nested", f"{wd}/a/b/c/deep.txt")
-        content = await sandbox_runtime.download_file(f"{wd}/a/b/c/deep.txt")
+    async def test_upload_creates_parent_dirs(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
+        await shared_runtime.upload_file(b"nested", f"{wd}/fio_a/b/c/deep.txt")
+        content = await shared_runtime.download_file(f"{wd}/fio_a/b/c/deep.txt")
         assert content == b"nested"
 
-    async def test_download_nonexistent_raises(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
+    async def test_download_nonexistent_raises(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
         with pytest.raises((FileNotFoundError, Exception)):
-            await sandbox_runtime.download_file(f"{wd}/nonexistent_xyz.txt")
+            await shared_runtime.download_file(f"{wd}/nonexistent_xyz.txt")
 
-    async def test_upload_overwrite(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
-        await sandbox_runtime.upload_file(b"version1", f"{wd}/data.txt")
-        await sandbox_runtime.upload_file(b"version2", f"{wd}/data.txt")
-        content = await sandbox_runtime.download_file(f"{wd}/data.txt")
+    async def test_upload_overwrite(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
+        await shared_runtime.upload_file(b"version1", f"{wd}/fio_data.txt")
+        await shared_runtime.upload_file(b"version2", f"{wd}/fio_data.txt")
+        content = await shared_runtime.download_file(f"{wd}/fio_data.txt")
         assert content == b"version2"
 
-    async def test_upload_binary(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
+    async def test_upload_binary(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
         binary_data = bytes(range(256))
-        await sandbox_runtime.upload_file(binary_data, f"{wd}/binary.bin")
-        downloaded = await sandbox_runtime.download_file(f"{wd}/binary.bin")
+        await shared_runtime.upload_file(binary_data, f"{wd}/fio_binary.bin")
+        downloaded = await shared_runtime.download_file(f"{wd}/fio_binary.bin")
         assert downloaded == binary_data
 
-    async def test_upload_files_batch(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
+    async def test_upload_files_batch(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
         files = [
-            (b"content_a", f"{wd}/batch/a.txt"),
-            (b"content_b", f"{wd}/batch/b.txt"),
-            (b"content_c", f"{wd}/batch/c.txt"),
+            (b"content_a", f"{wd}/fio_batch/a.txt"),
+            (b"content_b", f"{wd}/fio_batch/b.txt"),
+            (b"content_c", f"{wd}/fio_batch/c.txt"),
         ]
-        await sandbox_runtime.upload_files(files)
+        await shared_runtime.upload_files(files)
 
         for content, path in files:
-            downloaded = await sandbox_runtime.download_file(path)
+            downloaded = await shared_runtime.download_file(path)
             assert downloaded == content
 
-    async def test_list_files(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
-        await sandbox_runtime.upload_file(b"a", f"{wd}/listdir/file1.txt")
-        await sandbox_runtime.upload_file(b"b", f"{wd}/listdir/file2.txt")
-        await sandbox_runtime.exec(f"mkdir -p {wd}/listdir/subdir")
+    async def test_list_files(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
+        await shared_runtime.upload_file(b"a", f"{wd}/fio_listdir/file1.txt")
+        await shared_runtime.upload_file(b"b", f"{wd}/fio_listdir/file2.txt")
+        await shared_runtime.exec(f"mkdir -p {wd}/fio_listdir/subdir")
 
-        entries = await sandbox_runtime.list_files(f"{wd}/listdir")
+        entries = await shared_runtime.list_files(f"{wd}/fio_listdir")
 
         def _get_name(e):
             """Extract name from entry — handles both dict and object."""
@@ -287,18 +289,19 @@ class TestRuntimeFileIO:
         assert "subdir" in names
 
     async def test_file_io_on_stopped_runtime_raises(self, sandbox_runtime):
+        """Uses sandbox_runtime (own container) because it stops the sandbox."""
         wd = await sandbox_runtime.fetch_working_dir()
         await sandbox_runtime.stop()
         with pytest.raises(Exception):  # DaytonaError, RuntimeError, or SandboxTransientError
             await sandbox_runtime.upload_file(b"data", f"{wd}/test.txt")
         await sandbox_runtime.start()
 
-    async def test_large_file(self, sandbox_runtime):
+    async def test_large_file(self, shared_runtime):
         """Test file I/O with a 1MB file."""
-        wd = await sandbox_runtime.fetch_working_dir()
+        wd = await shared_runtime.fetch_working_dir()
         large_content = b"x" * (1024 * 1024)
-        await sandbox_runtime.upload_file(large_content, f"{wd}/large.bin")
-        downloaded = await sandbox_runtime.download_file(f"{wd}/large.bin")
+        await shared_runtime.upload_file(large_content, f"{wd}/fio_large.bin")
+        downloaded = await shared_runtime.download_file(f"{wd}/fio_large.bin")
         assert len(downloaded) == len(large_content)
         assert downloaded == large_content
 
@@ -311,26 +314,26 @@ class TestRuntimeFileIO:
 class TestRuntimeMetadata:
     """SandboxRuntime.capabilities, get_metadata(), working_dir, fetch_working_dir."""
 
-    async def test_capabilities_set(self, sandbox_runtime):
-        caps = sandbox_runtime.capabilities
+    async def test_capabilities_set(self, shared_runtime):
+        caps = shared_runtime.capabilities
         assert isinstance(caps, set)
         assert "exec" in caps
         assert "code_run" in caps
         assert "file_io" in caps
 
-    async def test_get_metadata(self, sandbox_runtime):
-        meta = await sandbox_runtime.get_metadata()
-        assert meta["id"] == sandbox_runtime.id
+    async def test_get_metadata(self, shared_runtime):
+        meta = await shared_runtime.get_metadata()
+        assert meta["id"] == shared_runtime.id
         assert "working_dir" in meta
 
-    async def test_working_dir_property(self, sandbox_runtime):
-        wd = sandbox_runtime.working_dir
+    async def test_working_dir_property(self, shared_runtime):
+        wd = shared_runtime.working_dir
         assert wd is not None
         assert len(wd) > 0
 
-    async def test_fetch_working_dir(self, sandbox_runtime):
-        wd = await sandbox_runtime.fetch_working_dir()
-        assert wd == sandbox_runtime.working_dir
+    async def test_fetch_working_dir(self, shared_runtime):
+        wd = await shared_runtime.fetch_working_dir()
+        assert wd == shared_runtime.working_dir
 
 
 # ---------------------------------------------------------------------------

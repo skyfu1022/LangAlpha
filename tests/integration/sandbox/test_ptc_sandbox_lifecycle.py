@@ -49,10 +49,6 @@ async def sandbox(core_config, _patch_create_provider):
     sb.config.filesystem.working_directory = actual_work_dir
     sb.config.filesystem.allowed_directories = [actual_work_dir, "/tmp"]
 
-    # Override hardcoded paths that reference /home/daytona
-    sb.TOKEN_FILE_PATH = f"{actual_work_dir}/_internal/.mcp_tokens.json"
-    sb.UNIFIED_MANIFEST_PATH = f"{actual_work_dir}/_internal/.sandbox_manifest.json"
-
     yield sb
 
     # Cleanup

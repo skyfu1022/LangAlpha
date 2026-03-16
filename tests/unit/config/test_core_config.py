@@ -133,9 +133,9 @@ class TestMCPConfig:
 class TestFilesystemConfig:
     def test_defaults(self):
         cfg = FilesystemConfig()
-        assert cfg.working_directory == "/home/daytona"
-        assert cfg.allowed_directories == ["/home/daytona", "/tmp"]
-        assert cfg.denied_directories == []
+        assert cfg.working_directory == "/home/workspace"
+        assert cfg.allowed_directories == ["/home/workspace", "/tmp"]
+        assert cfg.denied_directories == ["/home/workspace/_internal"]
         assert cfg.enable_path_validation is True
 
 

@@ -53,7 +53,7 @@ def _make_config(**overrides) -> CoreConfig:
 def mock_runtime():
     runtime = AsyncMock(spec=SandboxRuntime)
     runtime.id = "mock-runtime-1"
-    runtime.working_dir = "/home/daytona"
+    runtime.working_dir = "/home/workspace"
     runtime.exec = AsyncMock(return_value=ExecResult("output", "", 0))
     runtime.upload_file = AsyncMock()
     runtime.upload_files = AsyncMock()
@@ -135,7 +135,7 @@ class TestPTCSandboxDelegation:
         sandbox = PTCSandbox(config=_make_config())
         sandbox.runtime = mock_runtime
 
-        await sandbox.als_directory("/home/daytona")
+        await sandbox.als_directory("/home/workspace")
         mock_runtime.list_files.assert_called()
 
     @patch("ptc_agent.core.sandbox.ptc_sandbox.create_provider")
