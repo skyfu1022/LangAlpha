@@ -73,9 +73,14 @@ class TestFullLifecycle:
             output = await runtime.download_file(f"{wd}/results/output.txt")
             assert b"Analysis complete" in output
 
-            # 8. Stop
+            # 8. Stop (with retry — Daytona stop can timeout under load)
             async with timed("full_lifecycle", "stop"):
-                await runtime.stop()
+                try:
+                    await runtime.stop(timeout=180)
+                except Exception:
+                    import asyncio
+                    await asyncio.sleep(5)
+                    await runtime.stop(timeout=180)
             assert await runtime.get_state() == RuntimeState.STOPPED
 
             # 9. Reconnect via provider.get
