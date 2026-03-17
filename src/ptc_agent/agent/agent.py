@@ -545,6 +545,9 @@ class PTCAgent:
         if self.config.llm.summarization:
             summ_config = self.config.summarization.model_dump()
             summ_config["llm"] = self.config.llm.summarization
+            summ_client = self.config.subsidiary_llm_clients.get("summarization")
+            if summ_client:
+                summ_config["_llm_client"] = summ_client
         summarization = SummarizationMiddleware.from_config(config=summ_config, backend=backend)
 
         # Build model resilience middleware (retry + fallback)

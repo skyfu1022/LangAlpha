@@ -740,6 +740,20 @@ async def resolve_llm_config(
             f"[CHAT] Applied reasoning_effort={effective_reasoning} to {effective_model}"
         )
 
+    # Resolve OAuth/BYOK for subsidiary models
+    for role, sub_model in [("summarization", config.llm.summarization), ("fetch", config.llm.fetch)]:
+        if not sub_model:
+            continue
+        sub_client = await resolve_oauth_llm_client(user_id, sub_model)
+        if not sub_client and is_byok:
+            sub_client = await resolve_byok_llm_client(
+                user_id, sub_model, is_byok, _pref_cache=model_pref,
+            )
+        if sub_client:
+            if config is base_config:
+                config = config.model_copy(deep=True)
+            config.subsidiary_llm_clients[role] = sub_client
+
     return config
 
 
@@ -933,8 +947,11 @@ async def astream_flash_workflow(
 
         # Propagate fetch model override to tool context
         if config.llm.fetch:
-            from src.tools.fetch import fetch_model_override
+            from src.tools.fetch import fetch_llm_client_override, fetch_model_override
             fetch_model_override.set(config.llm.fetch)
+            fetch_client = config.subsidiary_llm_clients.get("fetch")
+            if fetch_client:
+                fetch_llm_client_override.set(fetch_client)
 
         # Fetch user profile for prompt injection
         flash_user_profile = None
@@ -1829,8 +1846,11 @@ async def astream_ptc_workflow(
 
         # Propagate fetch model override to tool context
         if config.llm.fetch:
-            from src.tools.fetch import fetch_model_override
+            from src.tools.fetch import fetch_llm_client_override, fetch_model_override
             fetch_model_override.set(config.llm.fetch)
+            fetch_client = config.subsidiary_llm_clients.get("fetch")
+            if fetch_client:
+                fetch_llm_client_override.set(fetch_client)
 
         subagents = request.subagents_enabled or config.subagents.enabled
         sandbox_id = None

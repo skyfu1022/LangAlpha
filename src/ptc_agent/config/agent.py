@@ -197,6 +197,7 @@ class AgentConfig(BaseModel):
     # Runtime data (not from config files)
     llm_definition: LLMDefinition | None = Field(default=None, exclude=True)
     llm_client: Any | None = Field(default=None, exclude=True)  # BaseChatModel instance
+    subsidiary_llm_clients: dict[str, Any] = Field(default_factory=dict, exclude=True)
     config_file_dir: Path | None = Field(
         default=None, exclude=True
     )  # For path resolution
