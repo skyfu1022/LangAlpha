@@ -1,3 +1,5 @@
+pytest_plugins = ["tests.integration.sandbox.metrics.conftest"]
+
 """
 Root conftest.py — shared fixtures for all backend tests.
 
