@@ -166,8 +166,12 @@ def create_sandbox_config(config_data: dict[str, Any]) -> SandboxConfig:
             "in agent_config.yaml"
         )
 
-    # Allow SANDBOX_PROVIDER env var to override
-    provider = os.getenv("SANDBOX_PROVIDER", provider)
+    # Allow SANDBOX_PROVIDER env var to override; auto-detect from DAYTONA_API_KEY
+    env_provider = os.getenv("SANDBOX_PROVIDER", "")
+    if env_provider:
+        provider = env_provider
+    elif not os.getenv("DAYTONA_API_KEY"):
+        provider = "docker"
 
     sandbox_config = SandboxConfig(
         provider=provider,

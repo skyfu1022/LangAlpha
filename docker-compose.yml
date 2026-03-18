@@ -1,10 +1,13 @@
 # Development docker-compose — full-stack local setup
 # Usage: cp .env.example .env && <fill in API keys> && docker compose up
 #
-# For production deployment, use docker-compose.prod.yml instead.
+# By default, starts PostgreSQL and Redis in Docker (COMPOSE_PROFILES=infra in .env).
+# To use an external database/Redis, remove COMPOSE_PROFILES from .env and set
+# DB_HOST, REDIS_URL to your own instances.
 
 services:
   postgres:
+    profiles: ["infra"]
     image: postgres:18
     restart: unless-stopped
     ports:
@@ -24,6 +27,7 @@ services:
       start_period: 10s
 
   redis:
+    profiles: ["infra"]
     image: redis:7-alpine
     restart: unless-stopped
     ports:
@@ -41,27 +45,14 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.dev
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     ports:
       - "8000:8000"
     env_file: .env
     environment:
-      # Override host-oriented defaults from .env for container networking
-      DB_TYPE: postgres
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_NAME: ${DB_NAME:-langalpha}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379/0
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis}
-      MEMORY_DB_HOST: postgres
-      MEMORY_DB_PORT: "5432"
-      MEMORY_DB_NAME: ${DB_NAME:-langalpha}
-      MEMORY_DB_USER: ${DB_USER:-postgres}
-      MEMORY_DB_PASSWORD: ${DB_PASSWORD:-postgres}
       BYOK_ENCRYPTION_KEY: ${BYOK_ENCRYPTION_KEY:-langalpha-local-dev-encryption-key}
-      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-daytona}
     volumes:
       # Mount source for hot-reload
       - ./src:/app/src
@@ -76,11 +67,6 @@ services:
       - ./scripts:/app/scripts
       - ./alembic.ini:/app/alembic.ini
       - ./migrations:/app/migrations
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 10s

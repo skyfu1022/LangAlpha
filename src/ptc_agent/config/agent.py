@@ -273,8 +273,12 @@ class AgentConfig(BaseModel):
         # Create LLM config (placeholder for file-based loading compatibility)
         llm_config = LLMConfig(name="custom")
 
-        # Resolve provider
-        resolved_provider = provider or os.getenv("SANDBOX_PROVIDER", "daytona")
+        # Resolve provider: explicit > env var > auto-detect from DAYTONA_API_KEY
+        resolved_provider = provider or os.getenv("SANDBOX_PROVIDER", "")
+        if not resolved_provider:
+            resolved_provider = (
+                "daytona" if os.getenv("DAYTONA_API_KEY") else "docker"
+            )
 
         # Create Daytona config (required for daytona provider, defaults for others)
         if resolved_provider == "daytona":
