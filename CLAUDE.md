@@ -107,7 +107,7 @@ The core differentiator: the LLM doesn't call MCP tools directly. Instead, it wr
 
 ```
 Client POST /api/v1/threads/{id}/messages
-  → threads.py → chat_handler.py (resolve LLM, credit check)
+  → threads.py → chat/ (resolve LLM, credit check)
     → build_ptc_graph_with_session() (get sandbox session from WorkspaceManager)
       → BackgroundSubagentOrchestrator.astream()
         → WorkflowStreamHandler.stream_workflow_events()
