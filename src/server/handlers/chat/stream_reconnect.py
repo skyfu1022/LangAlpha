@@ -20,7 +20,7 @@ from src.server.services.background_task_manager import (
 from src.server.services.workflow_tracker import WorkflowTracker
 
 from ._common import _SSE_LOG_ENABLED, _sse_logger, logger
-from .message_queue import drain_queued_return_event
+from .steering import drain_steering_return_event
 
 
 # ---------------------------------------------------------------------------
@@ -95,10 +95,10 @@ async def reconnect_to_workflow_stream(
                         break
                     continue
 
-            # After workflow ends, return any unconsumed queued messages to the client
-            queued_event = await drain_queued_return_event(thread_id)
-            if queued_event:
-                yield queued_event
+            # After workflow ends, return any unconsumed steering messages to the client
+            steering_event = await drain_steering_return_event(thread_id)
+            if steering_event:
+                yield steering_event
 
         finally:
             await manager.unsubscribe_from_live_events(thread_id, live_queue)
@@ -116,7 +116,7 @@ async def stream_subagent_task_events(
     """SSE stream of a single subagent's content events.
 
     Per-task SSE stream with its own Redis buffer. Events are
-    message_chunk, tool_calls, tool_call_result, and message_queued.
+    message_chunk, tool_calls, tool_call_result, and steering_accepted.
 
     Redis key: subagent:events:{thread_id}:{task_id}
     Cleared after task completion + persistence (mirrors main stream per-turn clearing).

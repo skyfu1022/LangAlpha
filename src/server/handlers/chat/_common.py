@@ -450,19 +450,19 @@ def serialize_context_metadata(
             ]
 
 
-def setup_queued_message_tracking(handler) -> None:
-    """Wire up queued-message tracking on a ``WorkflowStreamHandler``.
+def setup_steering_tracking(handler) -> None:
+    """Wire up steering tracking on a ``WorkflowStreamHandler``.
 
     Registers a callback so that messages injected mid-workflow are tracked
     for post-completion query backfill.
     """
 
-    async def _track_queued_messages(messages):
-        handler.injected_queued_messages.extend(
+    async def _track_steerings(messages):
+        handler.injected_steerings.extend(
             msg for msg in messages if msg.get("content")
         )
 
-    handler.on_queued_message_injected = _track_queued_messages
+    handler.on_steering_delivered = _track_steerings
 
 
 def normalize_request_messages(request: ChatRequest) -> list[dict]:
@@ -684,22 +684,22 @@ def build_graph_config(
     return graph_config
 
 
-async def wait_or_queue_message(
+async def wait_or_steer(
     manager: BackgroundTaskManager,
     thread_id: str,
     user_input: str,
     user_id: str,
 ) -> tuple[bool, str | None]:
-    """Wait for a soft-interrupted workflow, or queue the message.
+    """Wait for a soft-interrupted workflow, or steer the running workflow.
 
-    Returns ``(ready, queued_event)`` where ``ready=True`` means the caller
+    Returns ``(ready, steering_event)`` where ``ready=True`` means the caller
     should proceed with a new workflow.  If ``ready=False`` and
-    ``queued_event`` is not None, the caller should yield that SSE string
+    ``steering_event`` is not None, the caller should yield that SSE string
     and return.  If neither succeeds, raises HTTP 409.
     """
-    # Deferred to avoid circular import: message_queue imports _common at
-    # module level, so _common must not import message_queue at module level.
-    from src.server.handlers.chat.message_queue import queue_message_for_thread
+    # Deferred to avoid circular import: steering imports _common at
+    # module level, so _common must not import steering at module level.
+    from src.server.handlers.chat.steering import steer_thread
 
     ready_for_new_request = await manager.wait_for_soft_interrupted(
         thread_id, timeout=30.0
@@ -707,19 +707,19 @@ async def wait_or_queue_message(
     if ready_for_new_request:
         return True, None
 
-    # Try to queue the message for injection into the running workflow
-    queued = await queue_message_for_thread(thread_id, user_input, user_id)
-    if queued:
+    # Try to steer the running workflow
+    result = await steer_thread(thread_id, user_input, user_id)
+    if result:
         event_data = json.dumps(
             {
                 "thread_id": thread_id,
                 "content": user_input,
-                "position": queued["position"],
+                "position": result["position"],
             }
         )
-        return False, f"event: message_queued\ndata: {event_data}\n\n"
+        return False, f"event: steering_accepted\ndata: {event_data}\n\n"
 
-    # Fallback: raise 409 if queuing failed
+    # Fallback: raise 409 if steering failed
     raise HTTPException(
         status_code=409,
         detail=(
@@ -747,11 +747,11 @@ async def stream_live_events(
 
     Handles client disconnect by spawning ``_handle_sse_disconnect`` as an
     independent asyncio task.  After the workflow ends, drains any unconsumed
-    queued messages and emits a ``queued_message_returned`` event.
+    steering messages and emits a ``steering_returned`` event.
     """
-    # Deferred to avoid circular import: message_queue imports _common at
-    # module level, so _common must not import message_queue at module level.
-    from src.server.handlers.chat.message_queue import drain_queued_return_event
+    # Deferred to avoid circular import: steering imports _common at
+    # module level, so _common must not import steering at module level.
+    from src.server.handlers.chat.steering import drain_steering_return_event
 
     live_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     await manager.subscribe_to_live_events(thread_id, live_queue)
@@ -775,14 +775,14 @@ async def stream_live_events(
                     break
                 continue
 
-        # After workflow ends, return any unconsumed queued messages to the client
-        queued_event = await drain_queued_return_event(thread_id)
-        if queued_event:
+        # After workflow ends, return any unconsumed steering messages to the client
+        steering_event = await drain_steering_return_event(thread_id)
+        if steering_event:
             logger.info(
-                f"[{log_prefix}] Returning unconsumed queued "
+                f"[{log_prefix}] Returning unconsumed steering "
                 f"message(s) to client: thread_id={thread_id}"
             )
-            yield queued_event
+            yield steering_event
 
     except (asyncio.CancelledError, GeneratorExit):
         _disconnected = True

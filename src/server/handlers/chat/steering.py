@@ -1,8 +1,8 @@
-"""Redis message queuing utilities for chat workflows.
+"""Redis steering utilities for chat workflows.
 
-Handles queuing, draining, and backfilling of user messages that arrive while
-a workflow is already running. Messages are stored in Redis and consumed by
-MessageQueueMiddleware (main agent) or SubagentMessageQueueMiddleware (subagents).
+Handles queuing, draining, and backfilling of user steering messages that arrive
+while a workflow is already running. Messages are stored in Redis and consumed by
+SteeringMiddleware (main agent) or SubagentSteeringMiddleware (subagents).
 """
 
 import json
@@ -16,17 +16,17 @@ from src.server.services.background_registry_store import BackgroundRegistryStor
 from ._common import logger
 
 
-async def backfill_queued_queries(
-    thread_id: str, queued_messages: list[dict]
+async def backfill_steering_queries(
+    thread_id: str, steering_messages: list[dict]
 ) -> None:
-    """Backfill query records for queued messages that produced orphan responses.
+    """Backfill query records for steering messages that produced orphan responses.
 
     After a workflow completes, responses may exist at turn indices that have no
     matching query (because the user message was injected mid-workflow via
-    MessageQueueMiddleware rather than arriving as a normal HTTP request).
+    SteeringMiddleware rather than arriving as a normal HTTP request).
     This function finds those orphan response turns and creates query records.
     """
-    if not queued_messages:
+    if not steering_messages:
         return
 
     from src.server.database.conversation import (
@@ -36,8 +36,8 @@ async def backfill_queued_queries(
     )
 
     try:
-        queries = await get_queries_for_thread(thread_id)
-        responses = await get_responses_for_thread(thread_id)
+        queries, _ = await get_queries_for_thread(thread_id)
+        responses, _ = await get_responses_for_thread(thread_id)
 
         query_turns = {q["turn_index"] for q in queries}
         response_turns = {r["turn_index"] for r in responses}
@@ -46,8 +46,8 @@ async def backfill_queued_queries(
         if not orphan_turns:
             return
 
-        # Match orphan turns with queued messages (FIFO order)
-        for turn_index, msg in zip(orphan_turns, queued_messages):
+        # Match orphan turns with steering messages (FIFO order)
+        for turn_index, msg in zip(orphan_turns, steering_messages):
             content = msg.get("content", "")
             if not content:
                 continue
@@ -56,22 +56,22 @@ async def backfill_queued_queries(
                 conversation_thread_id=thread_id,
                 turn_index=turn_index,
                 content=content,
-                query_type="queued",
+                query_type="steering",
             )
             logger.info(
-                f"[CHAT] Backfilled queued query: thread_id={thread_id} "
+                f"[CHAT] Backfilled steering query: thread_id={thread_id} "
                 f"turn_index={turn_index}"
             )
     except Exception as e:
-        logger.error(f"[CHAT] Failed to backfill queued queries: {e}")
+        logger.error(f"[CHAT] Failed to backfill steering queries: {e}")
 
 
-async def drain_queued_return_event(thread_id: str) -> str | None:
-    """Drain unconsumed queued messages and format as a ``queued_message_returned`` SSE event.
+async def drain_steering_return_event(thread_id: str) -> str | None:
+    """Drain unconsumed steering messages and format as a ``steering_returned`` SSE event.
 
-    Returns the SSE string ready to yield, or ``None`` if no messages were queued.
+    Returns the SSE string ready to yield, or ``None`` if no messages were pending.
     """
-    unconsumed = await drain_queued_messages(thread_id)
+    unconsumed = await drain_pending_steerings(thread_id)
     if not unconsumed:
         return None
     event_data = json.dumps({
@@ -81,11 +81,11 @@ async def drain_queued_return_event(thread_id: str) -> str | None:
             for m in unconsumed
         ],
     })
-    return f"event: queued_message_returned\ndata: {event_data}\n\n"
+    return f"event: steering_returned\ndata: {event_data}\n\n"
 
 
-async def drain_queued_messages(thread_id: str) -> list[dict] | None:
-    """Drain any unconsumed queued messages from Redis after workflow completion.
+async def drain_pending_steerings(thread_id: str) -> list[dict] | None:
+    """Drain any unconsumed steering messages from Redis after workflow completion.
 
     Returns the messages so they can be sent back to the client for input restoration.
     """
@@ -96,7 +96,7 @@ async def drain_queued_messages(thread_id: str) -> list[dict] | None:
         return None
 
     try:
-        key = f"workflow:queued_messages:{thread_id}"
+        key = f"workflow:steering:{thread_id}"
         pipe = cache.client.pipeline()
         pipe.lrange(key, 0, -1)
         pipe.delete(key)
@@ -118,16 +118,16 @@ async def drain_queued_messages(thread_id: str) -> list[dict] | None:
 
         return messages or None
     except Exception as e:
-        logger.error(f"[CHAT] Failed to drain queued messages: {e}")
+        logger.error(f"[CHAT] Failed to drain pending steerings: {e}")
         return None
 
 
-async def queue_message_for_thread(
+async def steer_thread(
     thread_id: str, content: str, user_id: str
 ) -> dict | None:
-    """Queue a user message for injection into a running workflow via Redis.
+    """Steer a running workflow by injecting a user message via Redis.
 
-    The MessageQueueMiddleware will pick these up before the next LLM call.
+    The SteeringMiddleware will pick these up before the next LLM call.
 
     Args:
         thread_id: The thread with an active workflow
@@ -135,7 +135,7 @@ async def queue_message_for_thread(
         user_id: User identifier
 
     Returns:
-        Dict with queue position if successful, None if queuing failed
+        Dict with queue position if successful, None if steering failed
     """
     from src.utils.cache.redis_cache import get_cache_client
 
@@ -144,7 +144,7 @@ async def queue_message_for_thread(
         return None
 
     try:
-        key = f"workflow:queued_messages:{thread_id}"
+        key = f"workflow:steering:{thread_id}"
         message = json.dumps(
             {"content": content, "user_id": user_id, "timestamp": time.time()}
         )
@@ -155,24 +155,24 @@ async def queue_message_for_thread(
         results = await pipe.execute()
         position = results[1]
         logger.info(
-            f"[CHAT] Queued message for running workflow: "
+            f"[CHAT] Steering for running workflow: "
             f"thread_id={thread_id} position={position}"
         )
         return {"position": position}
     except Exception as e:
-        logger.error(f"[CHAT] Failed to queue message: {e}")
+        logger.error(f"[CHAT] Failed to steer thread: {e}")
         return None
 
 
-async def queue_message_for_subagent(
+async def steer_subagent(
     thread_id: str,
     task_id: str,
     content: str,
     user_id: str,
 ) -> dict:
-    """Queue a user message for injection into a running subagent via Redis.
+    """Steer a running subagent by injecting a user message via Redis.
 
-    The SubagentMessageQueueMiddleware will pick these up before the subagent's next LLM call.
+    The SubagentSteeringMiddleware will pick these up before the subagent's next LLM call.
 
     Args:
         thread_id: The thread with an active workflow
@@ -219,7 +219,7 @@ async def queue_message_for_subagent(
         )
 
     try:
-        key = f"subagent:queued_messages:{task.tool_call_id}"
+        key = f"subagent:steering:{task.tool_call_id}"
         payload = json.dumps(content)
         pipe = cache.client.pipeline()
         pipe.rpush(key, payload)
@@ -229,7 +229,7 @@ async def queue_message_for_subagent(
         position = results[1]
 
         logger.info(
-            f"[SUBAGENT_MSG] Queued message for subagent: "
+            f"[SUBAGENT_MSG] Steering for subagent: "
             f"thread_id={thread_id} task={task.display_id} position={position}"
         )
         return {
@@ -239,8 +239,8 @@ async def queue_message_for_subagent(
             "queue_position": position,
         }
     except Exception as e:
-        logger.error(f"[SUBAGENT_MSG] Failed to queue message: {e}")
+        logger.error(f"[SUBAGENT_MSG] Failed to steer subagent: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to queue message: {e}",
+            detail=f"Failed to steer subagent: {e}",
         )
