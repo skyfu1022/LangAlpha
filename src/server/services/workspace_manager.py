@@ -522,6 +522,10 @@ class WorkspaceManager:
         try:
             await SessionManager.cleanup_session(workspace_id)
         except Exception as e:
+            # cleanup_session may fail after cleanup() but before del _sessions,
+            # leaving a stale entry.  Evict unconditionally so _recover_sandbox
+            # creates a fresh session.
+            SessionManager.remove_session(workspace_id)
             logger.warning(f"Old sandbox cleanup failed for {workspace_id}: {e}")
 
         # 3. Create fresh sandbox + restore files from DB
