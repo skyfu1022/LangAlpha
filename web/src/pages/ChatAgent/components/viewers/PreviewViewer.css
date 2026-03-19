@@ -86,3 +86,47 @@
   background: var(--color-bg-page);
   z-index: 1;
 }
+
+/* Frosted overlay shown during panel resize */
+.preview-viewer-resize-overlay {
+  position: absolute;
+  inset: 0;
+  top: 37px;
+  z-index: 3;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-bg-page) 75%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.preview-viewer-resize-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 24px;
+  border-radius: 12px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-muted);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.preview-viewer-resize-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preview-viewer-resize-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.preview-viewer-resize-url {
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--color-text-tertiary);
+}

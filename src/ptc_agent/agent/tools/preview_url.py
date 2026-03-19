@@ -18,11 +18,11 @@ def create_preview_url_tool(sandbox: Any) -> BaseTool:
         Configured GetPreviewUrl tool function
     """
 
-    @tool
+    @tool(response_format="content_and_artifact")
     async def GetPreviewUrl(
         port: int,
         title: str | None = None,
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         """Get a preview URL for a service running on the given port in the sandbox.
 
         Use this after starting a web server or frontend dev server in the background
@@ -54,7 +54,14 @@ def create_preview_url_tool(sandbox: Any) -> BaseTool:
                 url=url[:80],
             )
 
-            # Emit SSE artifact so the frontend can open the preview panel
+            artifact = {
+                "type": "preview_url",
+                "url": url,
+                "port": port,
+                "title": display_title,
+            }
+
+            # Emit SSE artifact so the frontend auto-opens the preview panel
             if writer:
                 writer({
                     "artifact_type": "preview_url",
@@ -66,13 +73,17 @@ def create_preview_url_tool(sandbox: Any) -> BaseTool:
                     },
                 })
 
-            return f"Preview URL for {display_title}: {url}"
+            content = f"Preview URL for {display_title}: {url}"
+            return content, artifact
 
         except NotImplementedError:
-            return "ERROR: Preview URLs are not supported by the current sandbox provider"
+            return (
+                "ERROR: Preview URLs are not supported by the current sandbox provider",
+                {},
+            )
         except Exception as e:
             error_msg = f"Failed to generate preview URL for port {port}: {e!s}"
             logger.error(error_msg, port=port, error=str(e), exc_info=True)
-            return f"ERROR: {error_msg}"
+            return f"ERROR: {error_msg}", {}
 
     return GetPreviewUrl

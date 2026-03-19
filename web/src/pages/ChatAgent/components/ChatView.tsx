@@ -803,18 +803,22 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
   );
 
   // Handle drag panel width
+  const PREVIEW_MAX_RATIO = 0.92;
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingRef.current = true;
     setIsDragging(true);
     const startX = e.clientX;
     const startWidth = rightPanelWidth;
+    // Snapshot container width at drag start to avoid feedback loop
+    // (ResizeObserver updates contentAreaWidthRef as panel resizes)
+    const containerW = contentAreaWidthRef.current > 0 ? contentAreaWidthRef.current : window.innerWidth;
+    const maxRatio = rightPanelType === 'preview' ? PREVIEW_MAX_RATIO : undefined;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingRef.current) return;
       const delta = startX - moveEvent.clientX;
-      const containerW = contentAreaWidthRef.current > 0 ? contentAreaWidthRef.current : window.innerWidth;
-      setRightPanelWidth(clampPanelWidthUtil(startWidth + delta, containerW));
+      setRightPanelWidth(clampPanelWidthUtil(startWidth + delta, containerW, maxRatio));
     };
 
     const onMouseUp = () => {
@@ -830,7 +834,7 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [rightPanelWidth]);
+  }, [rightPanelWidth, rightPanelType]);
 
   // Open a file in the right panel from chat tool calls
   // --- Mobile back-button integration for panels ---
@@ -937,14 +941,43 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
     return clampPanelWidth(desired);
   }, [clampPanelWidth]);
 
-  // Open tool call detail in right panel
+  // Open preview URL in right panel
+  const handleOpenPreview = useCallback((data: { url: string; port: number; title?: string }) => {
+    setPreviewData(data);
+    setRightPanelType('preview');
+    const containerW = contentAreaWidthRef.current > 0 ? contentAreaWidthRef.current : window.innerWidth;
+    setRightPanelWidth(clampPanelWidthUtil(850, containerW, PREVIEW_MAX_RATIO));
+    pushPanelHistory();
+  }, [pushPanelHistory]);
+
+  // Keep the ref in sync so SSE events (via handleOpenPreviewFromStream) use the latest closure
+  openPreviewRef.current = handleOpenPreview;
+
+  // Open tool call detail in right panel (or preview panel for preview_url artifacts)
   const handleToolCallDetailClick = useCallback((toolCallProcess: ToolCallProcessRecord) => {
+    const artifact = toolCallProcess.toolCallResult?.artifact as Record<string, unknown> | undefined;
+    if (artifact?.type === 'preview_url' && artifact.port && workspaceId) {
+      // Fetch a fresh signed URL (the stored one may be expired) and open preview panel
+      const port = artifact.port as number;
+      const title = artifact.title as string | undefined;
+      getPreviewUrl(workspaceId, port)
+        .then((fresh) => {
+          handleOpenPreview({ url: fresh.url, port, title });
+        })
+        .catch(() => {
+          // Fall back to the stored URL if refresh fails
+          if (artifact.url) {
+            handleOpenPreview({ url: artifact.url as string, port, title });
+          }
+        });
+      return;
+    }
     setDetailToolCall(toolCallProcess);
     setDetailPlanData(null);
     setRightPanelWidth(getDetailPanelWidth(toolCallProcess));
     setRightPanelType('detail');
     pushPanelHistory();
-  }, [getDetailPanelWidth, pushPanelHistory]);
+  }, [getDetailPanelWidth, pushPanelHistory, workspaceId, handleOpenPreview]);
 
   // Open plan detail in right panel
   const handlePlanDetailClick = useCallback((planData: PlanData) => {
@@ -962,17 +995,6 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
     setDetailPlanData(null);
     popPanelHistory();
   }, [popPanelHistory]);
-
-  // Open preview URL in right panel
-  const handleOpenPreview = useCallback((data: { url: string; port: number; title?: string }) => {
-    setPreviewData(data);
-    setRightPanelType('preview');
-    setRightPanelWidth(clampPanelWidth(850));
-    pushPanelHistory();
-  }, [clampPanelWidth, pushPanelHistory]);
-
-  // Keep the ref in sync so SSE events (via handleOpenPreviewFromStream) use the latest closure
-  openPreviewRef.current = handleOpenPreview;
 
   // Close preview panel
   const handleClosePreview = useCallback(() => {
@@ -1892,8 +1914,9 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: rightPanelWidth + DIVIDER_WIDTH, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: isDragging ? 0 : 0.25, ease: [0.22, 1, 0.36, 1] }}
+              transition={isDragging ? { duration: 0 } : { duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               className="flex flex-shrink-0 overflow-hidden"
+              style={isDragging ? { width: rightPanelWidth + DIVIDER_WIDTH } : undefined}
             >
               <div
                 className="chat-split-divider"
@@ -1937,6 +1960,7 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
                       title={previewData.title}
                       onClose={handleClosePreview}
                       onRefresh={handleRefreshPreview}
+                      isDragging={isDragging}
                     />
                   ) : null}
                 </Suspense>
