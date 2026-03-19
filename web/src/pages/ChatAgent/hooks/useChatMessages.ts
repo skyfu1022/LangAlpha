@@ -420,6 +420,7 @@ export function useChatMessages(
   finalizePendingTodos: (() => void) | null = null,
   onOnboardingRelatedToolComplete: (() => void) | null = null,
   onFileArtifact: ((event: SSEEvent) => void) | null = null,
+  onPreviewUrl: ((data: { url: string; port: number; title?: string }) => void) | null = null,
   agentMode: string = 'ptc',
   clearSubagentCards: (() => void) | null = null,
   onWorkspaceCreated: ((info: { workspaceId: string; question: string }) => void) | null = null,
@@ -2624,6 +2625,13 @@ export function useChatMessages(
           console.log('[Stream] handleTodoUpdate result:', result);
         } else if (artifactType === 'file_operation' && onFileArtifact) {
           onFileArtifact(event);
+        } else if (artifactType === 'preview_url' && onPreviewUrl) {
+          const payload = (event.payload || {}) as Record<string, unknown>;
+          onPreviewUrl({
+            url: payload.url as string,
+            port: payload.port as number,
+            title: payload.title as string | undefined,
+          });
         } else if (artifactType === 'task') {
           const payload = (event.payload || {}) as Record<string, unknown>;
           const { task_id, action: rawAction, description, prompt, type } = payload;

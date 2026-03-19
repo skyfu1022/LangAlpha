@@ -8,7 +8,7 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import { updateCurrentUser } from '../../Dashboard/utils/api';
-import { softInterruptWorkflow, getWorkspace, summarizeThread, offloadThread } from '../utils/api';
+import { softInterruptWorkflow, getWorkspace, summarizeThread, offloadThread, getPreviewUrl } from '../utils/api';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { saveChatSession, getChatSession, clearChatSession } from '../hooks/utils/chatSessionRestore';
 import { clampPanelWidth as clampPanelWidthUtil } from '@/lib/panelUtils';
@@ -32,6 +32,7 @@ import { MobileBottomSheet } from '@/components/ui/mobile-bottom-sheet';
 
 const FilePanel = React.lazy(() => import('./FilePanel'));
 const DetailPanel = React.lazy(() => import('./DetailPanel'));
+const PreviewViewer = React.lazy(() => import('./viewers/PreviewViewer'));
 
 // --- Types ---
 
@@ -279,9 +280,10 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
   const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Right panel management - can show 'file', 'detail', or null (closed)
-  const [rightPanelType, setRightPanelType] = useState<'file' | 'detail' | null>(null);
+  // Right panel management - can show 'file', 'detail', 'preview', or null (closed)
+  const [rightPanelType, setRightPanelType] = useState<'file' | 'detail' | 'preview' | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState(750);
+  const [previewData, setPreviewData] = useState<{ url: string; port: number; title?: string } | null>(null);
   const DIVIDER_WIDTH = 4; // px – matches .chat-split-divider
   // Active agent in main view (default: 'main', or from URL taskId)
   const [activeAgentId, setActiveAgentId] = useState(
@@ -485,6 +487,14 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
     });
   }, [navigate, navWorkspaces, workspaceName]);
 
+  // Stable ref-based callback for opening preview URLs from SSE events.
+  // Defined here so it can be passed to useChatMessages; assigned after
+  // clampPanelWidth/pushPanelHistory are defined further down.
+  const openPreviewRef = useRef<(data: { url: string; port: number; title?: string }) => void>(() => {});
+  const handleOpenPreviewFromStream = useCallback((data: { url: string; port: number; title?: string }) => {
+    openPreviewRef.current(data);
+  }, []);
+
   // Chat messages management - receives updateTodoListCard and updateSubagentCard from floating cards hook
   const {
     messages,
@@ -522,7 +532,7 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
     getFeedbackForMessage,
     getSubagentHistory,
     resolveSubagentIdToAgentId,
-  } = useChatMessages(workspaceId, threadId, updateTodoListCard as (todoData: Record<string, unknown>) => void, updateSubagentCard, inactivateAllSubagents, finalizePendingTodos, handleOnboardingRelatedToolComplete, refreshFiles, agentMode, clearSubagentCards, handleWorkspaceCreated);
+  } = useChatMessages(workspaceId, threadId, updateTodoListCard as (todoData: Record<string, unknown>) => void, updateSubagentCard, inactivateAllSubagents, finalizePendingTodos, handleOnboardingRelatedToolComplete, refreshFiles, handleOpenPreviewFromStream, agentMode, clearSubagentCards, handleWorkspaceCreated);
 
   const chatPlaceholder = useMemo(() => {
     if (pendingRejection) return t('chat.placeholderPendingRejection');
@@ -861,6 +871,7 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
         setRightPanelType(null);
         setDetailToolCall(null);
         setDetailPlanData(null);
+        setPreviewData(null);
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -951,6 +962,35 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
     setDetailPlanData(null);
     popPanelHistory();
   }, [popPanelHistory]);
+
+  // Open preview URL in right panel
+  const handleOpenPreview = useCallback((data: { url: string; port: number; title?: string }) => {
+    setPreviewData(data);
+    setRightPanelType('preview');
+    setRightPanelWidth(clampPanelWidth(850));
+    pushPanelHistory();
+  }, [clampPanelWidth, pushPanelHistory]);
+
+  // Keep the ref in sync so SSE events (via handleOpenPreviewFromStream) use the latest closure
+  openPreviewRef.current = handleOpenPreview;
+
+  // Close preview panel
+  const handleClosePreview = useCallback(() => {
+    setRightPanelType(null);
+    setPreviewData(null);
+    popPanelHistory();
+  }, [popPanelHistory]);
+
+  // Refresh preview URL from backend
+  const handleRefreshPreview = useCallback(async () => {
+    if (!previewData || !workspaceId) return;
+    try {
+      const fresh = await getPreviewUrl(workspaceId, previewData.port);
+      setPreviewData(prev => prev ? { ...prev, url: fresh.url } : null);
+    } catch (e) {
+      console.error('Failed to refresh preview URL:', e);
+    }
+  }, [previewData, workspaceId]);
 
   // Toggle file panel
   const handleToggleFilePanel = useCallback(() => {
@@ -1889,6 +1929,14 @@ function ChatView({ workspaceId, threadId, initialTaskId, onBack, workspaceName:
                       onClose={handleCloseDetailPanel}
                       onOpenFile={handleOpenFileFromChat}
                       onOpenSubagentTask={handleOpenSubagentTask}
+                    />
+                  ) : rightPanelType === 'preview' && previewData ? (
+                    <PreviewViewer
+                      url={previewData.url}
+                      port={previewData.port}
+                      title={previewData.title}
+                      onClose={handleClosePreview}
+                      onRefresh={handleRefreshPreview}
                     />
                   ) : null}
                 </Suspense>

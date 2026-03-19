@@ -539,6 +539,13 @@ export async function refreshWorkspace(workspaceId: string) {
   return data;
 }
 
+export async function getPreviewUrl(workspaceId: string, port: number) {
+  const { data } = await api.get(`/api/v1/workspaces/${workspaceId}/sandbox/preview-url`, {
+    params: { port },
+  });
+  return data;
+}
+
 // --- Thread Sharing ---
 
 /**
