@@ -575,13 +575,13 @@ async def get_sandbox_preview_url(
             status_code=501,
             detail="Preview URLs are not supported by the current sandbox provider",
         ) from None
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Failed to get preview URL for workspace %s port %d",
             workspace_id,
             body.port,
         )
-        raise HTTPException(status_code=500, detail=str(e)) from None
+        raise HTTPException(status_code=500, detail="Failed to get preview URL") from None
 
 
 class PreviewHealthRequest(BaseModel):
@@ -653,11 +653,11 @@ async def restart_preview_server(
     try:
         await sandbox.start_preview_server(body.command)
         return PreviewRestartResponse(success=True)
-    except Exception as e:
+    except Exception:
         logger.exception(
             "Failed to restart preview server for workspace %s", workspace_id,
         )
-        raise HTTPException(status_code=500, detail=str(e)) from None
+        raise HTTPException(status_code=500, detail="Failed to restart preview server") from None
 
 
 # ---------------------------------------------------------------------------
@@ -680,22 +680,27 @@ async def _resolve_preview_url(sandbox_id: str, port: int) -> str:
     manager = WorkspaceManager.get_instance()
     provider = create_provider(manager.config.to_core_config())
     try:
-        try:
-            runtime = await provider.get(sandbox_id)
-        except Exception:
-            raise HTTPException(status_code=404, detail="Sandbox not found") from None
+        async def _fetch_fresh_url() -> str:
+            try:
+                runtime = await provider.get(sandbox_id)
+            except Exception:
+                raise HTTPException(status_code=404, detail="Sandbox not found") from None
 
-        state = await runtime.get_state()
-        if state.value != "running":
-            raise HTTPException(
-                status_code=503,
-                detail="Sandbox not running",
-                headers={"Retry-After": "30"},
-            )
+            state = await runtime.get_state()
+            if state.value != "running":
+                raise HTTPException(
+                    status_code=503,
+                    detail="Sandbox not running",
+                    headers={"Retry-After": "30"},
+                )
 
-        preview_info = await runtime.get_preview_url(port, expires_in=3600)
-        await _set_cached_signed_url(sandbox_id, port, preview_info.url)
-        return preview_info.url
+            preview_info = await runtime.get_preview_url(port, expires_in=3600)
+            await _set_cached_signed_url(sandbox_id, port, preview_info.url)
+            return preview_info.url
+
+        return await asyncio.wait_for(_fetch_fresh_url(), timeout=15)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Preview URL resolution timed out") from None
     finally:
         await provider.close()
 
