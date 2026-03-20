@@ -124,7 +124,10 @@ def search_tickers(
         s = yf.Search(query, max_results=max_results, news_count=news_count)
         return _make_response(
             "search_results",
-            {"quotes": s.quotes, "news": [_clean_value(a) for a in s.news]},
+            {
+                "quotes": [_clean_value(q) for q in s.quotes],
+                "news": [_clean_value(a) for a in s.news],
+            },
         )
     except Exception as e:
         return _make_error(f"Search failed: {e}")

@@ -285,6 +285,9 @@ def compare_financials(
         statement_type: "income", "balance", or "cashflow"
         quarterly: If True returns quarterly data; if False returns annual
     """
+    if statement_type not in ("income", "balance", "cashflow"):
+        return _make_error(f"Invalid statement_type '{statement_type}'. Must be 'income', 'balance', or 'cashflow'.")
+
     data = {}
     errors = []
 
@@ -295,11 +298,8 @@ def compare_financials(
                 df = stock.quarterly_income_stmt if quarterly else stock.income_stmt
             elif statement_type == "balance":
                 df = stock.quarterly_balance_sheet if quarterly else stock.balance_sheet
-            elif statement_type == "cashflow":
-                df = stock.quarterly_cashflow if quarterly else stock.cashflow
             else:
-                errors.append(f"Invalid statement_type: {statement_type}")
-                continue
+                df = stock.quarterly_cashflow if quarterly else stock.cashflow
 
             if df is None or df.empty:
                 errors.append(f"No {statement_type} data for {ticker}")

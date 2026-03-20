@@ -105,6 +105,8 @@ def get_stock_history(
         stock = yf.Ticker(ticker)
         df = stock.history(period=period, interval=interval)
         history = _serialize_history(df)
+        if not history:
+            return _make_error(f"No data found for {ticker} with period={period}, interval={interval}")
         return _make_response(
             "stock_history",
             history,

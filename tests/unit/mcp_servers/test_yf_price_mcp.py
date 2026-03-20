@@ -136,9 +136,8 @@ class TestGetStockHistory:
         mock_ticker_cls.return_value.history.return_value = empty_df
         result = get_stock_history("INVALID")
 
-        assert result["data_type"] == "stock_history"
-        assert result["count"] == 0
-        assert result["data"] == []
+        assert "error" in result
+        assert "No data found" in result["error"]
 
     @patch("mcp_servers.yf_price_mcp_server.yf.Ticker")
     def test_exception(self, mock_ticker_cls):

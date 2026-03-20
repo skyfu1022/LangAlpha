@@ -339,12 +339,10 @@ class TestCompareFinancials:
         assert "BAD" not in result["data"]
         assert "errors" in result
 
-    @patch("mcp_servers.yf_fundamentals_mcp_server.yf.Ticker")
-    def test_invalid_statement_type(self, mock_ticker_cls):
-        mock_ticker_cls.return_value = Mock()
+    def test_invalid_statement_type(self):
         result = compare_financials(["AAPL"], statement_type="invalid")
-        assert "errors" in result
-        assert any("Invalid" in e for e in result["errors"])
+        assert "error" in result
+        assert "Invalid statement_type" in result["error"]
 
 
 # ============================================================================
