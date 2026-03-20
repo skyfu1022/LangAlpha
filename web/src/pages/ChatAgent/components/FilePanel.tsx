@@ -1175,9 +1175,13 @@ function FilePanel({
       setUploadProgress(null);
       onRefreshFiles?.();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      const e = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
       console.error('[FilePanel] Upload failed:', err);
-      const msg = e?.response?.data?.detail || e?.message || 'Upload failed';
+      let msg = e?.response?.data?.detail || e?.message || 'Upload failed';
+      if (e?.response?.status === 413 && !e?.response?.data?.detail) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        msg = `File is too large (${sizeMB} MB). Maximum upload size is 250 MB.`;
+      }
       setUploadError(msg);
       setUploadProgress(null);
     }

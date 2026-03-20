@@ -87,7 +87,7 @@ _ALWAYS_HIDDEN_DIR_PREFIXES = (
 
 # Generous but bounded defaults.
 DEFAULT_READ_LIMIT_LINES = 20_000
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
+MAX_UPLOAD_BYTES = 250 * 1024 * 1024  # 250MB
 
 # Known binary file extensions that cannot be read as text
 _BINARY_EXTENSIONS = frozenset(
@@ -684,7 +684,12 @@ async def upload_workspace_file(
 
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large")
+        size_mb = len(content) / (1024 * 1024)
+        limit_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File is too large ({size_mb:.1f} MB). Maximum upload size is {limit_mb} MB.",
+        )
 
     try:
         ok = await sandbox.aupload_file_bytes(normalized, content)
