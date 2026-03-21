@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _REFRESH_INTERVAL = 60  # seconds — reload automations from DB
 _POLL_INTERVAL = 30  # seconds — REST fallback polling
 _REFERENCE_REFRESH_INTERVAL = 300  # seconds — refresh reference prices
-_ONE_SHOT_DEDUP_TTL = 60  # seconds — short dedup for one-shot (DB status is the real guard)
+_ONE_SHOT_DEDUP_TTL = 300  # seconds — must exceed _REFRESH_INTERVAL to avoid re-trigger races
 _MIN_TRADING_DAY_TTL = 300  # 5 min floor for trading-day TTL
 
 _ET = ZoneInfo("America/New_York")
@@ -232,11 +232,13 @@ class PriceMonitorService:
         self, automation: Dict[str, Any], current_price: float
     ) -> None:
         """Evaluate conditions for an automation and trigger if all are met."""
-        trigger_config = automation.get("trigger_config", {})
-        try:
-            config = PriceTriggerConfig(**trigger_config)
-        except Exception:
-            return
+        config = automation.get("_parsed_config")
+        if config is None:
+            trigger_config = automation.get("trigger_config", {})
+            try:
+                config = PriceTriggerConfig(**trigger_config)
+            except Exception:
+                return
 
         symbol = config.symbol.upper()
 
@@ -296,6 +298,11 @@ class PriceMonitorService:
                 server_id=scheduler.server_id,
             )
 
+            # Mark as executing BEFORE dispatch so DB reload excludes it
+            await auto_db.update_automation_next_run(
+                automation_id, next_run_at=None, status="executing",
+            )
+
             # Dispatch execution
             asyncio.create_task(
                 executor.execute(automation, execution_id),
@@ -306,6 +313,14 @@ class PriceMonitorService:
                 "[PriceMonitor] Failed to dispatch execution for %s",
                 automation_id, exc_info=True,
             )
+            # Restore status if it was set to 'executing' before the failure
+            try:
+                await auto_db.restore_executing_to_active(automation_id)
+            except Exception:
+                logger.error(
+                    "[PriceMonitor] Failed to restore status for %s",
+                    automation_id, exc_info=True,
+                )
 
     # ─── Dedup Locking ────────────────────────────────────────────────
 
@@ -380,6 +395,7 @@ class PriceMonitorService:
 
             symbol = config.symbol.upper()
             new_symbols.add(symbol)
+            auto["_parsed_config"] = config
             new_symbol_map.setdefault(symbol, []).append(auto)
 
         # Diff subscriptions

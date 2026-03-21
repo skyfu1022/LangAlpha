@@ -161,6 +161,7 @@ class TestTryTrigger:
         with (
             patch("src.utils.cache.redis_cache.get_cache_client", return_value=mock_cache),
             patch("src.server.database.automation.create_execution", new_callable=AsyncMock, return_value="exec-123") as mock_create_exec,
+            patch("src.server.database.automation.update_automation_next_run", new_callable=AsyncMock) as mock_update,
             patch("src.server.services.automation_scheduler.AutomationScheduler.get_instance", return_value=mock_scheduler),
             patch("src.server.services.automation_executor.AutomationExecutor.get_instance", return_value=mock_executor),
         ):
@@ -173,6 +174,11 @@ class TestTryTrigger:
 
             # Execution was created
             mock_create_exec.assert_called_once()
+
+            # Status was set to 'executing' before dispatch
+            mock_update.assert_called_once_with(
+                auto["automation_id"], next_run_at=None, status="executing",
+            )
 
     @pytest.mark.asyncio
     async def test_skips_when_lock_not_acquired(self):
@@ -209,6 +215,7 @@ class TestTryTrigger:
         with (
             patch("src.utils.cache.redis_cache.get_cache_client", return_value=mock_cache),
             patch("src.server.database.automation.create_execution", new_callable=AsyncMock, return_value="exec-1"),
+            patch("src.server.database.automation.update_automation_next_run", new_callable=AsyncMock),
             patch("src.server.services.automation_scheduler.AutomationScheduler.get_instance", return_value=MagicMock(server_id="s1")),
             patch("src.server.services.automation_executor.AutomationExecutor.get_instance", return_value=AsyncMock()),
         ):
@@ -323,7 +330,7 @@ class TestTryTriggerLockTTL:
 
     @pytest.mark.asyncio
     async def test_one_shot_uses_short_dedup_ttl(self):
-        """one_shot: 60s dedup lock only — DB completion is the real guard."""
+        """one_shot: 300s dedup lock — must exceed refresh interval to prevent re-trigger."""
         svc = PriceMonitorService()
         auto = _make_automation(retrigger_mode="one_shot")
         config = PriceTriggerConfig(**auto["trigger_config"])
@@ -335,12 +342,13 @@ class TestTryTriggerLockTTL:
         with (
             patch("src.utils.cache.redis_cache.get_cache_client", return_value=mock_cache),
             patch("src.server.database.automation.create_execution", new_callable=AsyncMock, return_value="exec-1"),
+            patch("src.server.database.automation.update_automation_next_run", new_callable=AsyncMock),
             patch("src.server.services.automation_scheduler.AutomationScheduler.get_instance", return_value=MagicMock(server_id="s1")),
             patch("src.server.services.automation_executor.AutomationExecutor.get_instance", return_value=AsyncMock()),
         ):
             await svc._try_trigger(auto, config, 149.0)
             call_kwargs = mock_redis_client.set.call_args
-            assert call_kwargs.kwargs["ex"] == 60
+            assert call_kwargs.kwargs["ex"] == 300
 
     @pytest.mark.asyncio
     async def test_recurring_no_cooldown_uses_trading_day(self):
@@ -357,6 +365,7 @@ class TestTryTriggerLockTTL:
             patch("src.utils.cache.redis_cache.get_cache_client", return_value=mock_cache),
             patch("src.server.services.price_monitor._seconds_until_next_market_open", return_value=70200),
             patch("src.server.database.automation.create_execution", new_callable=AsyncMock, return_value="exec-1"),
+            patch("src.server.database.automation.update_automation_next_run", new_callable=AsyncMock),
             patch("src.server.services.automation_scheduler.AutomationScheduler.get_instance", return_value=MagicMock(server_id="s1")),
             patch("src.server.services.automation_executor.AutomationExecutor.get_instance", return_value=AsyncMock()),
         ):
@@ -378,6 +387,7 @@ class TestTryTriggerLockTTL:
         with (
             patch("src.utils.cache.redis_cache.get_cache_client", return_value=mock_cache),
             patch("src.server.database.automation.create_execution", new_callable=AsyncMock, return_value="exec-1"),
+            patch("src.server.database.automation.update_automation_next_run", new_callable=AsyncMock),
             patch("src.server.services.automation_scheduler.AutomationScheduler.get_instance", return_value=MagicMock(server_id="s1")),
             patch("src.server.services.automation_executor.AutomationExecutor.get_instance", return_value=AsyncMock()),
         ):
