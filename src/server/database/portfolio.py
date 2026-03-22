@@ -236,18 +236,21 @@ async def upsert_portfolio_holding(
                     merged_name = name or existing["name"]
                     merged_notes = notes or existing["notes"]
 
+                    def _dec_str(d):
+                        return format(d.normalize(), 'f')
+
                     merge_details = {
                         "previous": {
-                            "quantity": str(existing_qty),
-                            "average_cost": str(existing_cost) if existing_cost is not None else None,
+                            "quantity": _dec_str(existing_qty),
+                            "average_cost": _dec_str(existing_cost) if existing_cost is not None else None,
                         },
                         "added": {
-                            "quantity": str(quantity),
-                            "average_cost": str(average_cost) if average_cost is not None else None,
+                            "quantity": _dec_str(quantity),
+                            "average_cost": _dec_str(average_cost) if average_cost is not None else None,
                         },
                         "result": {
-                            "quantity": str(total_qty),
-                            "average_cost": str(merged_avg_cost) if merged_avg_cost is not None else None,
+                            "quantity": _dec_str(total_qty),
+                            "average_cost": _dec_str(merged_avg_cost) if merged_avg_cost is not None else None,
                         },
                     }
 
