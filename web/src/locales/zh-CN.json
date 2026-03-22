@@ -51,6 +51,8 @@
     "dark": "深色",
     "light": "浅色",
     "locale": "语言",
+    "voiceInput": "语音输入",
+    "voiceInputDesc": "在聊天栏中启用麦克风图标以进行语音转文字。",
     "emailCannotBeChanged": "邮箱不可更改",
     "changeAvatar": "更换头像",
     "uploading": "上传中...",
@@ -328,6 +330,13 @@
       "fastModeDesc": "优先路由以获得更快响应",
       "fastModeHelpLine1": "等同于 Codex 中的 /fast",
       "fastModeHelpLine2": "消耗 2 倍积分，优先服务层级"
+    },
+    "voice": {
+      "start": "开启语音输入",
+      "stop": "停止语音输入",
+      "listening": "正在倾听... (打字可中断)",
+      "permissionDenied": "麦克风权限被拒绝",
+      "serviceError": "语音识别服务错误"
     }
   },
   "context": {

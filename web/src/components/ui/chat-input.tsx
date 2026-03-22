@@ -3,6 +3,7 @@ import {
   Plus, ArrowUp, X, FileText, Loader2, Archive, Square,
   ScrollText, ChartCandlestick, Zap, FileStack, ChevronDown, ChevronRight, FolderOpen, TextSelect,
   Terminal, Bot, Shrink, HardDriveDownload, Check, Brain, Flame, Rocket, CircleHelp,
+  Mic, MicOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +11,7 @@ import { TokenUsageRing, type TokenUsageData } from './token-usage-ring';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { getSkills, getModelMetadata } from '../../pages/ChatAgent/utils/api';
+import { useToast } from './use-toast';
 import './chat-input.css';
 
 /* --- TYPES --- */
@@ -224,6 +226,8 @@ function areModelsCompatible(modelA: string | null, modelB: string | null, metad
  * @param {string}    prefillMessage
  * @param {Function}  onClearPrefill
  */
+const speechSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({
   onSend,
   disabled = false,
@@ -256,7 +260,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   // Dropdown direction: 'up' (default, for bottom-positioned inputs) or 'down' (for mid-page inputs like ThreadGallery)
   dropdownDirection = 'up',
 }, ref) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { toast } = useToast();
   const isMobile = useIsMobile();
   const { preferences } = usePreferences();
   const otherPref = (preferences as Record<string, Record<string, unknown>> | null)?.other_preference;
@@ -285,7 +290,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   }, [effectiveInitialModel]);
 
   // Fetch model metadata for compatibility checking (eager prefetch, resolves instantly after first load)
-  useEffect(() => { getModelMetadata().then((d: Record<string, unknown>) => setModelMetadata(d as typeof modelMetadata)).catch(() => {}); }, []);
+  useEffect(() => { getModelMetadata().then((d: Record<string, unknown>) => setModelMetadata(d as typeof modelMetadata)).catch(() => { }); }, []);
 
   const isCodexModel = selectedModel ? modelMetadata[selectedModel]?.sdk === 'codex' : false;
 
@@ -307,8 +312,129 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   // Fetch skills filtered by agent mode (re-fetches when mode changes; cached per mode in api.js)
   const skillsMode = mode === 'fast' ? 'flash' : 'ptc';
   useEffect(() => {
-    getSkills(skillsMode).then((s: unknown[]) => setSkills(s as typeof skills)).catch(() => {});
+    getSkills(skillsMode).then((s: unknown[]) => setSkills(s as typeof skills)).catch(() => { });
   }, [skillsMode]);
+
+  // Voice Input (Speech Recognition)
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const isStartingRef = useRef(false);
+  const finalTranscriptRef = useRef('');
+  const baseMessageRef = useRef('');
+  const messageRef = useRef(message);
+
+  // Sync message ref
+  useEffect(() => { messageRef.current = message; }, [message]);
+
+  // Stop recognition when loading starts (ghost text fix)
+  useEffect(() => {
+    if (isLoading && recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setIsListening(false);
+    }
+  }, [isLoading]);
+
+  const toggleListening = useCallback(() => {
+    if (isStartingRef.current) return;
+
+    // ALWAYS stop existing instance if it exists (prevents orphaned instances on rapid clicks)
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) {
+      console.warn("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      // Derived purely from current UI locale
+      recognition.lang = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US';
+
+      // Capture message BEFORE starting recognition
+      const startMessage = messageRef.current.trim();
+      baseMessageRef.current = startMessage ? startMessage + ' ' : '';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        isStartingRef.current = false;
+        finalTranscriptRef.current = ''; // Reset for new session
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        if (recognitionRef.current !== recognition) return;
+        let interimTranscript = '';
+        // Start from resultIndex to avoid re-processing or duplicating old results
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalTranscriptRef.current += result[0].transcript;
+          } else {
+            interimTranscript += result[0].transcript;
+          }
+        }
+        setMessage(baseMessageRef.current + finalTranscriptRef.current + interimTranscript);
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        if (recognitionRef.current !== recognition) return;
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          console.error('Speech recognition error:', event.error);
+          if (event.error === 'not-allowed') {
+            toast({
+              title: t('chat.voice.permissionDenied'),
+              variant: 'destructive',
+            });
+          } else if (event.error === 'service-not-allowed' || event.error === 'network') {
+            toast({
+              title: t('chat.voice.serviceError'),
+              variant: 'destructive',
+            });
+          }
+        }
+        setIsListening(false);
+        isStartingRef.current = false;
+        recognitionRef.current = null;
+      };
+
+      recognition.onend = () => {
+        if (recognitionRef.current !== recognition) return;
+        isStartingRef.current = false; // Release lock in case onstart never fired
+        setIsListening(false);
+        recognitionRef.current = null;
+      };
+
+      recognitionRef.current = recognition;
+      isStartingRef.current = true;
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start speech recognition:', err);
+      isStartingRef.current = false;
+      recognitionRef.current = null; // Prevent stale ref if start() throws
+      setIsListening(false);
+    }
+  }, [isListening, toast, t, i18n.language]);
+
+  // Clean up recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort(); // Terminate immediately without firing callbacks
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
 
   // Stop button state
   const [isStopping, setIsStopping] = useState(false);
@@ -788,8 +914,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     }
   }, [hasContent, disabled, message, planMode, attachedFiles, onSend, mentionedFiles, slashCommands, selectedModel, reasoningEffort, fastMode, t]);
 
-  // --- Keyboard ---
+  // --- Keyboard & Language Detection ---
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // If user starts typing while voice input is active, terminate the voice input.
+    // We treat any single character key or delete/backspace as a signal to stop.
+    if (isListening && recognitionRef.current && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete')) {
+      recognitionRef.current.stop();
+    }
+
     // Slash command menu keyboard navigation
     if (showSlashMenu && filteredSlashCommands.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -846,7 +978,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     if (e.key === 'Escape' && showAutocomplete) {
       setShowAutocomplete(false);
     }
-  }, [showSlashMenu, filteredSlashCommands, slashActiveIndex, selectSlashCommand, showAutocomplete, filteredMentionFiles, activeIndex, selectFile, handleSend]);
+  }, [showSlashMenu, filteredSlashCommands, slashActiveIndex, selectSlashCommand, showAutocomplete, filteredMentionFiles, activeIndex, selectFile, handleSend, isListening]);
 
   // Workspace selector helpers
   const selectedWorkspaceName = useMemo(() => {
@@ -909,9 +1041,27 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     >
       {/* Main Container */}
       <div
-        className="flex flex-col items-stretch transition-all duration-200 relative z-10 rounded-2xl cursor-text border border-[hsl(var(--primary))] bg-[var(--color-bg-card)]"
+        className={`chat-input-container flex flex-col items-stretch transition-all duration-200 relative z-10 rounded-2xl cursor-text border border-[hsl(var(--primary))] bg-[var(--color-bg-card)] ${isListening ? 'recording' : ''}`}
         onClick={() => textareaRef.current?.focus()}
       >
+        {isListening && (
+          <>
+            <div className="recording-overlay" />
+            <div className="voice-status-hint">
+              <div className="waveform">
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+                <div className="waveform-bar" />
+              </div>
+              <span className="animate-pulse">{t('chat.voice.listening', { defaultValue: 'Listening... (Type to cancel)' })}</span>
+            </div>
+          </>
+        )}
         <div className="flex flex-col px-3 pt-3 pb-2 gap-2">
 
           {/* Slash command pills + Mention pills */}
@@ -1053,8 +1203,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               onPaste={handlePaste}
               onKeyDown={handleKeyDown}
               onBlur={handleBlur}
-              placeholder={placeholder}
-              className={`w-full bg-transparent border-0 outline-none text-[var(--color-text-primary)] ${isMobile ? 'text-base' : 'text-sm'} placeholder:text-[var(--color-text-tertiary)] resize-none overflow-hidden leading-relaxed block`}
+              onCompositionStart={() => {
+                // Terminate voice input if IME starts
+                if (isListening && recognitionRef.current) {
+                  recognitionRef.current.stop();
+                }
+              }}
+              placeholder={isListening ? "" : placeholder}
+              className={`w-full bg-transparent border-0 outline-none text-[var(--color-text-primary)] ${isMobile ? 'text-base' : 'text-sm'} placeholder:text-[var(--color-text-tertiary)] resize-none overflow-hidden leading-relaxed block transition-opacity duration-300 ${isListening ? 'opacity-20' : 'opacity-100'}`}
               rows={1}
               disabled={disabled}
               style={{ minHeight: '1.5em' }}
@@ -1125,51 +1281,51 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               {/* Workspace Selector */}
               {showWorkspaceSelector && (
                 <div className="relative" ref={workspaceMenuRef}>
-                <button
-                  ref={workspaceBtnRef}
-                  className="inline-flex items-center rounded-full border-none cursor-pointer"
-                  style={{
-                    gap: '4px',
-                    padding: '6px 10px',
-                    fontSize: '13px',
-                    fontWeight: 500,
-                    background: showWorkspaceMenu ? 'var(--color-accent-soft)' : 'transparent',
-                    color: showWorkspaceMenu ? 'var(--color-accent-light)' : 'var(--color-text-muted, #8b8fa3)',
-                    border: showWorkspaceMenu ? '1px solid var(--color-accent-overlay)' : '1px solid transparent',
-                    transition: 'background 0.2s, color 0.2s, border-color 0.2s',
-                  }}
-                  onClick={(e) => { e.stopPropagation(); setShowWorkspaceMenu((v) => !v); }}
-                  onMouseEnter={(e) => {
-                    if (!showWorkspaceMenu) e.currentTarget.style.background = 'var(--color-border-muted)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!showWorkspaceMenu) e.currentTarget.style.background = 'transparent';
-                  }}
-                  type="button"
-                  title="Select workspace"
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  <span className="max-w-[100px] truncate">{selectedWorkspaceName}</span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {showWorkspaceMenu && (
-                  <div className="workspace-dropdown workspace-dropdown-up">
-                    {workspaces.map((ws) => (
-                      <div
-                        key={ws.workspace_id}
-                        className={`workspace-dropdown-item ${ws.workspace_id === selectedWorkspaceId ? 'active' : ''}`}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          onWorkspaceChange?.(ws.workspace_id);
-                          setShowWorkspaceMenu(false);
-                        }}
-                      >
-                        <FolderOpen className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
-                        <span>{ws.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  <button
+                    ref={workspaceBtnRef}
+                    className="inline-flex items-center rounded-full border-none cursor-pointer"
+                    style={{
+                      gap: '4px',
+                      padding: '6px 10px',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      background: showWorkspaceMenu ? 'var(--color-accent-soft)' : 'transparent',
+                      color: showWorkspaceMenu ? 'var(--color-accent-light)' : 'var(--color-text-muted, #8b8fa3)',
+                      border: showWorkspaceMenu ? '1px solid var(--color-accent-overlay)' : '1px solid transparent',
+                      transition: 'background 0.2s, color 0.2s, border-color 0.2s',
+                    }}
+                    onClick={(e) => { e.stopPropagation(); setShowWorkspaceMenu((v) => !v); }}
+                    onMouseEnter={(e) => {
+                      if (!showWorkspaceMenu) e.currentTarget.style.background = 'var(--color-border-muted)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showWorkspaceMenu) e.currentTarget.style.background = 'transparent';
+                    }}
+                    type="button"
+                    title="Select workspace"
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    <span className="max-w-[100px] truncate">{selectedWorkspaceName}</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                  {showWorkspaceMenu && (
+                    <div className="workspace-dropdown workspace-dropdown-up">
+                      {workspaces.map((ws) => (
+                        <div
+                          key={ws.workspace_id}
+                          className={`workspace-dropdown-item ${ws.workspace_id === selectedWorkspaceId ? 'active' : ''}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            onWorkspaceChange?.(ws.workspace_id);
+                            setShowWorkspaceMenu(false);
+                          }}
+                        >
+                          <FolderOpen className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} />
+                          <span>{ws.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1307,9 +1463,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                         {...(isMobile
                           ? { onMouseDown: (e: React.MouseEvent) => { e.preventDefault(); setShowMoreModels((v) => !v); } }
                           : {
-                              onMouseEnter: () => { if (moreModelsTimeout.current) clearTimeout(moreModelsTimeout.current); setShowMoreModels(true); },
-                              onMouseLeave: () => { moreModelsTimeout.current = setTimeout(() => setShowMoreModels(false), 150); },
-                            }
+                            onMouseEnter: () => { if (moreModelsTimeout.current) clearTimeout(moreModelsTimeout.current); setShowMoreModels(true); },
+                            onMouseLeave: () => { moreModelsTimeout.current = setTimeout(() => setShowMoreModels(false), 150); },
+                          }
                         )}
                       >
                         <span>{t('chat.modelSelector.moreModels')}</span>
@@ -1319,13 +1475,13 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                           const menuRect = modelMenuRef.current?.getBoundingClientRect();
                           const openLeft = menuRect && menuRect.right + 244 > window.innerWidth;
                           return (
-                          <div
-                            className={`model-dropdown-submenu ${dropdownDirection === 'down' ? 'model-dropdown-submenu-down' : 'model-dropdown-submenu-up'} ${openLeft ? 'model-dropdown-submenu-left' : 'model-dropdown-submenu-right'}`}
-                            onMouseEnter={() => { if (moreModelsTimeout.current) clearTimeout(moreModelsTimeout.current); }}
-                            onMouseLeave={() => { moreModelsTimeout.current = setTimeout(() => setShowMoreModels(false), 150); }}
-                          >
-                            {renderMoreModelsList(false)}
-                          </div>
+                            <div
+                              className={`model-dropdown-submenu ${dropdownDirection === 'down' ? 'model-dropdown-submenu-down' : 'model-dropdown-submenu-up'} ${openLeft ? 'model-dropdown-submenu-left' : 'model-dropdown-submenu-right'}`}
+                              onMouseEnter={() => { if (moreModelsTimeout.current) clearTimeout(moreModelsTimeout.current); }}
+                              onMouseLeave={() => { moreModelsTimeout.current = setTimeout(() => setShowMoreModels(false), 150); }}
+                            >
+                              {renderMoreModelsList(false)}
+                            </div>
                           );
                         })()}
                       </div>
@@ -1333,6 +1489,25 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                       {showMoreModels && isMobile && renderMoreModelsList(true)}
                     </div>
                   )}
+                </div>
+              )}
+              {/* Voice Input Button (Show only if enabled in user settings) */}
+              {speechSupported && !isLoading && !!otherPref?.voice_input_enabled && (
+                <div className="flex items-center">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleListening(); }}
+                    disabled={disabled}
+                    className={`inline-flex items-center justify-center h-8 w-8 rounded-xl transition-all active:scale-95 mic-button ${isListening ? 'recording' : 'text-[var(--color-icon-muted)] hover:text-[var(--color-text-muted)] hover:bg-foreground/5'}`}
+                    type="button"
+                    title={isListening ? t('chat.voice.stop') : t('chat.voice.start')}
+                    aria-label={isListening ? t('chat.voice.stop') : t('chat.voice.start')}
+                  >
+                    {isListening ? (
+                      <MicOff className="w-4 h-4" />
+                    ) : (
+                      <Mic className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               )}
               {/* Send / Stop Button */}
@@ -1372,12 +1547,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       </div>
 
       {/* Drag Overlay */}
-      {isDragging && (
-        <div className="absolute inset-0 bg-[var(--color-accent-soft)] border-2 border-dashed border-[hsl(var(--primary))] rounded-2xl z-50 flex flex-col items-center justify-center backdrop-blur-sm pointer-events-none">
-          <Archive className="w-10 h-10 text-[hsl(var(--primary))] mb-2 animate-bounce" />
-          <p className="text-[hsl(var(--primary))] font-medium">Drop files to upload</p>
-        </div>
-      )}
+      {
+        isDragging && (
+          <div className="absolute inset-0 bg-[var(--color-accent-soft)] border-2 border-dashed border-[hsl(var(--primary))] rounded-2xl z-50 flex flex-col items-center justify-center backdrop-blur-sm pointer-events-none">
+            <Archive className="w-10 h-10 text-[hsl(var(--primary))] mb-2 animate-bounce" />
+            <p className="text-[hsl(var(--primary))] font-medium">Drop files to upload</p>
+          </div>
+        )
+      }
 
       {/* Hidden File Input */}
       <input
