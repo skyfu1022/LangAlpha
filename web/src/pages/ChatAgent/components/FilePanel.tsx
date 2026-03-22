@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { readWorkspaceFile, readWorkspaceFileFull, writeWorkspaceFile, downloadWorkspaceFile, downloadWorkspaceFileAsArrayBuffer, triggerFileDownload, uploadWorkspaceFile, deleteWorkspaceFiles, backupWorkspaceFiles, getBackupStatus } from '../utils/api';
 import { stripLineNumbers } from './toolDisplayConfig';
 import Markdown from './Markdown';
+import ImageLightbox from './ImageLightbox';
 import DocumentErrorBoundary from './viewers/DocumentErrorBoundary';
 import './FilePanel.css';
 import type { LucideIcon } from 'lucide-react';
@@ -555,6 +556,7 @@ function FilePanel({
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileArrayBuffer, setFileArrayBuffer] = useState<ArrayBuffer | null>(null);
   const [fileMime, setFileMime] = useState<string | null>(null);
+  const [imageLightboxOpen, setImageLightboxOpen] = useState(false);
   const [fileLoading, setFileLoading] = useState(false);
 
   // Upload state
@@ -1724,7 +1726,10 @@ function FilePanel({
             ) : (
               <div className="p-4" onMouseUp={handleContentMouseUp}>
                 {fileMime === 'image' ? (
-                  <img src={fileContent!} alt={fileName} className="max-w-full rounded" />
+                  <>
+                    <img src={fileContent!} alt={fileName} className="max-w-full rounded cursor-pointer" onClick={() => setImageLightboxOpen(true)} />
+                    <ImageLightbox src={fileContent!} alt={fileName} open={imageLightboxOpen} onClose={() => setImageLightboxOpen(false)} />
+                  </>
                 ) : fileMime === 'error' ? (
                   <DocumentErrorFallback onDownload={() => triggerDownloadFn(workspaceId, selectedFile).catch((err: unknown) => console.error('[FilePanel] Download failed:', err))} />
                 ) : selectedFile?.startsWith('/large_tool_results/') ? (

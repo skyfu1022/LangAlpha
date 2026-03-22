@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWorkspaceId, useWorkspaceDownloadFile } from '../contexts/WorkspaceContext';
 import { downloadWorkspaceFile } from '../utils/api';
+import ImageLightbox from './ImageLightbox';
 
 // Module-level cache: key:path → blobUrl
 const blobCache = new Map<string, string>();
@@ -21,6 +22,7 @@ interface WorkspaceImageProps extends React.ImgHTMLAttributes<HTMLImageElement> 
 }
 
 function WorkspaceImage({ src, alt, ...props }: WorkspaceImageProps) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const workspaceId = useWorkspaceId();
   const downloadFileFn = useWorkspaceDownloadFile();
   const canFetch = !!(src && !isExternalUrl(src) && (workspaceId || downloadFileFn));
@@ -69,13 +71,17 @@ function WorkspaceImage({ src, alt, ...props }: WorkspaceImageProps) {
   // Pass through: no context, no src, or external URL
   if (!canFetch) {
     return (
-      <img
-        className="rounded-lg my-2"
-        style={{ maxWidth: '100%', height: 'auto' }}
-        src={src}
-        alt={alt}
-        {...props}
-      />
+      <>
+        <img
+          className="rounded-lg my-2 cursor-pointer"
+          style={{ maxWidth: '100%', height: 'auto' }}
+          src={src}
+          alt={alt}
+          onClick={() => src && setLightboxOpen(true)}
+          {...props}
+        />
+        {src && <ImageLightbox src={src} alt={alt} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />}
+      </>
     );
   }
 
@@ -104,13 +110,17 @@ function WorkspaceImage({ src, alt, ...props }: WorkspaceImageProps) {
   }
 
   return (
-    <img
-      className="rounded-lg my-2"
-      style={{ maxWidth: '100%', height: 'auto' }}
-      src={blobUrl!}
-      alt={alt}
-      {...props}
-    />
+    <>
+      <img
+        className="rounded-lg my-2 cursor-pointer"
+        style={{ maxWidth: '100%', height: 'auto' }}
+        src={blobUrl!}
+        alt={alt}
+        onClick={() => setLightboxOpen(true)}
+        {...props}
+      />
+      <ImageLightbox src={blobUrl!} alt={alt} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />
+    </>
   );
 }
 
