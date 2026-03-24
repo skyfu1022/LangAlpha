@@ -615,6 +615,7 @@ export function useChatMessages(
         historyMessagesRef.current.clear();
         newMessagesStartIndexRef.current = 0;
         recentlySentTrackerRef.current.clear();
+        turnCheckpointsRef.current = null;
       }
     }
   }, [workspaceId, initialThreadId]);
@@ -2398,9 +2399,9 @@ export function useChatMessages(
           return [...prev, ...newUserMessages];
         });
 
-        // 3. Create new assistant message placeholder
+        // 3. Create new assistant message placeholder (steering continuation — not a new backend turn)
         const newAssistantId = `assistant-${Date.now()}`;
-        const newAssistant = createAssistantMessage(newAssistantId);
+        const newAssistant = { ...createAssistantMessage(newAssistantId), isSteering: true };
         setMessages((prev) => appendMessage(prev,newAssistant));
 
         // 4. Switch closure & refs to new assistant message
@@ -3608,23 +3609,24 @@ export function useChatMessages(
    */
   const getTurnCheckpoints = useCallback(async () => {
     if (turnCheckpointsRef.current) return turnCheckpointsRef.current;
-    if (!threadId || threadId === '__default__') return null;
+    const currentThreadId = threadIdRef.current;
+    if (!currentThreadId || currentThreadId === '__default__') return null;
     try {
-      const data = await fetchThreadTurns(threadId);
+      const data = await fetchThreadTurns(currentThreadId);
       turnCheckpointsRef.current = data;
       return data;
     } catch (err) {
       console.error('[useChatMessages] Failed to fetch turn checkpoints:', err);
       return null;
     }
-  }, [threadId]);
+  }, []);
 
   /**
    * Helper: run a checkpoint-based stream (shared by edit, regenerate, retry).
    * Sets up assistant placeholder, event processor, and handles the stream lifecycle.
    */
   const streamFromCheckpoint = useCallback(async (message: string | null, checkpointId: string, truncateIndex: number, forkFromTurn: number | null = null, modelOptions: ModelOptions = {}) => {
-    if (isLoading) return;
+    if (isStreamingRef.current) return;
 
     setIsLoading(true);
     setMessageError(null);
@@ -3728,7 +3730,7 @@ export function useChatMessages(
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, workspaceId, threadId, agentMode]);
+  }, [workspaceId, threadId, agentMode]);
 
   /**
    * Edit a user message: truncate to before that message, send modified content
@@ -3740,19 +3742,31 @@ export function useChatMessages(
     const msgIndex = messages.findIndex((m) => m.id === messageId);
     if (msgIndex === -1) return;
 
-    // Count assistant messages before this user message to get turn_index.
-    // Uses assistant count because HITL resume turns create assistant bubbles
-    // without user bubbles, and backend turns include HITL resumes.
-    const turnIndex = messages.slice(0, msgIndex).filter((m) => m.role === 'assistant').length;
+    // Count non-steering assistant messages before this user message to get turn_index.
+    // Excludes steering assistant messages (mid-turn continuations) which don't map to backend turns.
+    const turnIndex = messages.slice(0, msgIndex).filter((m) => m.role === 'assistant' && !m.isSteering).length;
+
+    // Immediate visual feedback: truncate, show edited message + loading placeholder
+    setIsLoading(true);
+    setMessageError(null);
+    const placeholderId = `assistant-pending-${Date.now()}`;
+    const editedUserMsg = createUserMessage(newContent);
+    setMessages((prev) => [
+      ...prev.slice(0, msgIndex),
+      editedUserMsg,
+      createAssistantMessage(placeholderId),
+    ]);
 
     const turnsData = await getTurnCheckpoints();
     if (!turnsData?.turns?.[turnIndex]) {
+      setIsLoading(false);
       setMessageError('Unable to edit: checkpoint data unavailable');
       return;
     }
 
     const checkpointId = turnsData.turns[turnIndex].edit_checkpoint_id;
     if (!checkpointId) {
+      setIsLoading(false);
       setMessageError('Unable to edit: this is the first message');
       return;
     }
@@ -3768,13 +3782,22 @@ export function useChatMessages(
     const msgIndex = messages.findIndex((m) => m.id === messageId);
     if (msgIndex === -1) return;
 
-    // Count assistant messages up to and including this one to get turn_index.
-    // Uses assistant count because HITL resume turns create assistant bubbles
-    // without user bubbles, and backend turns include HITL resumes.
-    const turnIndex = messages.slice(0, msgIndex + 1).filter((m) => m.role === 'assistant').length - 1;
+    // Count non-steering assistant messages up to and including this one to get turn_index.
+    // Excludes steering assistant messages (mid-turn continuations) which don't map to backend turns.
+    const turnIndex = messages.slice(0, msgIndex + 1).filter((m) => m.role === 'assistant' && !m.isSteering).length - 1;
+
+    // Immediate visual feedback: truncate at the assistant message, show loading placeholder
+    setIsLoading(true);
+    setMessageError(null);
+    const placeholderId = `assistant-pending-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev.slice(0, msgIndex),
+      createAssistantMessage(placeholderId),
+    ]);
 
     const turnsData = await getTurnCheckpoints();
     if (!turnsData?.turns?.[turnIndex]) {
+      setIsLoading(false);
       setMessageError('Unable to regenerate: checkpoint data unavailable');
       return;
     }
@@ -3814,7 +3837,7 @@ export function useChatMessages(
   const deriveTurnIndex = useCallback((messageId: string): number => {
     const msgIndex = messages.findIndex(m => m.id === messageId);
     if (msgIndex === -1) return -1;
-    return messages.slice(0, msgIndex + 1).filter(m => m.role === 'assistant').length - 1;
+    return messages.slice(0, msgIndex + 1).filter(m => m.role === 'assistant' && !m.isSteering).length - 1;
   }, [messages]);
 
   const handleThumbUp = useCallback(async (messageId: string) => {

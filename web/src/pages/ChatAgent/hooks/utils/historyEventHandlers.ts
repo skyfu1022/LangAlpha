@@ -657,6 +657,7 @@ export function handleHistorySteeringDelivered({
     timestamp: new Date(),
     isStreaming: false,
     isHistory: true,
+    isSteering: true,
     contentSegments: [],
     reasoningProcesses: {},
     toolCallProcesses: {},
