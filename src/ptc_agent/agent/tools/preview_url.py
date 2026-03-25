@@ -34,6 +34,7 @@ def create_preview_url_tool(
         port: int,
         command: str,
         title: str | None = None,
+        path: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Get a preview URL for a service running on the given port in the sandbox.
 
@@ -42,9 +43,11 @@ def create_preview_url_tool(
         server can be restarted automatically when the user reopens the preview later.
 
         Args:
-            port: Port number (3000-9999) the service is listening on
+            port: Port number (3000-9999) the command will listen on
             command: The shell command to start the server (e.g. "python -m http.server 8080")
             title: Optional display title for the preview (default: "Port {port}")
+            path: Optional URL path suffix appended to the preview URL
+                  (e.g. "/timeline.html" to open a specific file instead of the default index)
 
         Returns:
             The signed preview URL that can be used to access the service
@@ -78,16 +81,28 @@ def create_preview_url_tool(
                 workspace_id=workspace_id,
             )
 
-            # Stable URL: {base}/api/v1/preview/{workspace_id}/{port}
+            # Stable URL: {base}/api/v1/preview/{workspace_id}/{port}[/path]
             from src.config.env import SERVER_BASE_URL
 
-            stable_url = f"{SERVER_BASE_URL.rstrip('/')}/api/v1/preview/{workspace_id}/{port}"
+            normalized_path = ""
+            if path:
+                # Reject traversal attempts at the tool layer (defense in depth)
+                clean = path.lstrip("/")
+                if ".." in clean.split("/"):
+                    clean = clean.replace("..", "")
+                normalized_path = "/" + clean
+
+            stable_url = (
+                f"{SERVER_BASE_URL.rstrip('/')}/api/v1/preview/{workspace_id}/{port}"
+                f"{normalized_path}"
+            )
 
             artifact = {
                 "type": "preview_url",
                 "port": port,
                 "title": display_title,
                 "command": command,
+                **({"path": normalized_path} if normalized_path else {}),
             }
 
             # Emit SSE artifact so the frontend auto-opens the preview panel
