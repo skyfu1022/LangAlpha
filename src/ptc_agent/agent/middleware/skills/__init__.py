@@ -11,6 +11,10 @@ This module provides:
 
 from ptc_agent.agent.middleware.skills.content import load_skill_content
 from ptc_agent.agent.middleware.skills.discovery import SkillMetadata
+from ptc_agent.agent.middleware.skills.lock import (
+    SkillLockEntry,
+    SkillsLockFile,
+)
 from ptc_agent.agent.middleware.skills.registry import (
     SKILL_REGISTRY,
     SkillDefinition,
@@ -29,8 +33,10 @@ from ptc_agent.agent.middleware.skills.middleware import (
 
 __all__ = [
     "SkillDefinition",
+    "SkillLockEntry",
     "SkillMetadata",
     "SkillMode",
+    "SkillsLockFile",
     "SKILL_REGISTRY",
     "SkillsMiddleware",
     "get_command_to_skill_map",

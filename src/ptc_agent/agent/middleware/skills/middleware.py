@@ -227,7 +227,7 @@ class SkillsMiddleware(AgentMiddleware):
         if self._mode == "ptc":
             lines.append(
                 "Skills provide specialized capabilities. "
-                "To activate, read `skills/{name}/SKILL.md`."
+                "To activate, read `.agents/skills/{name}/SKILL.md`."
             )
         else:
             lines.append("Call `LoadSkill` with the skill name to activate its tools.")

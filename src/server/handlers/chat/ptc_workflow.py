@@ -9,6 +9,7 @@ subagent orchestration, completion callback) remain inline.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from datetime import datetime
@@ -375,7 +376,7 @@ async def astream_ptc_workflow(
             short_id = thread_id[:8]
             try:
                 request_path = session.sandbox.normalize_path(
-                    f".agent/threads/{short_id}/request.md"
+                    f".agents/threads/{short_id}/request.md"
                 )
                 await session.sandbox.awrite_file_text(request_path, user_input)
             except Exception:
@@ -542,14 +543,18 @@ async def astream_ptc_workflow(
                     f"duration={execution_time:.2f}s"
                 )
 
-                # Backup sandbox files to DB after each message
-                try:
-                    ws_manager = WorkspaceManager.get_instance()
-                    await ws_manager._backup_files_to_db(request.workspace_id)
-                except Exception as backup_err:
-                    logger.warning(
-                        f"[PTC_COMPLETE] File backup failed for {thread_id}: {backup_err}"
-                    )
+                # Post-completion sandbox housekeeping (parallel)
+                ws_manager = WorkspaceManager.get_instance()
+                housekeeping = [ws_manager._backup_files_to_db(request.workspace_id)]
+                if session and session.sandbox:
+                    housekeeping.append(session.sandbox.sync_skills_lock())
+                results = await asyncio.gather(*housekeeping, return_exceptions=True)
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        task_name = "file backup" if i == 0 else "lock sync"
+                        logger.warning(
+                            f"[PTC_COMPLETE] {task_name} failed for {thread_id}: {result}"
+                        )
 
             except Exception as e:
                 logger.error(
