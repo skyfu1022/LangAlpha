@@ -75,6 +75,18 @@ async def _delete_cached_signed_url(sandbox_id: str, port: int) -> None:
     await cache.delete(_preview_cache_key(sandbox_id, port))
 
 
+async def _is_preview_live_confirmed(sandbox_id: str, port: int) -> bool:
+    """Check if the preview was recently confirmed live (avoids repeated HEAD probes)."""
+    cache = get_cache_client()
+    return await cache.get(f"preview:live:{sandbox_id}:{port}") is not None
+
+
+async def _set_preview_live_confirmed(sandbox_id: str, port: int, *, ttl: int = 10) -> None:
+    """Mark preview as confirmed live for a short window."""
+    cache = get_cache_client()
+    await cache.set(f"preview:live:{sandbox_id}:{port}", "1", ttl=ttl)
+
+
 async def _check_signed_url_healthy(signed_url: str) -> bool:
     """HEAD-check the actual signed URL the iframe would load."""
     try:
@@ -513,12 +525,15 @@ class PreviewUrlResponse(BaseModel):
     expires_in: int
 
 
+_UNSET = object()
+
+
 async def _resolve_preview(
     sandbox: Any,
     workspace_id: str,
     port: int,
     *,
-    command: str | None = None,
+    command: str | None | object = _UNSET,
     force: bool = False,
     expires_in: int = 3600,
 ) -> str:
@@ -531,10 +546,14 @@ async def _resolve_preview(
     returns a fresh signed URL.
 
     Falls back to a plain ``get_preview_url`` only when no command is known.
+
+    Pass ``command=None`` to indicate "already looked up, no command stored"
+    (skips the DB lookup).  Omit the argument (or pass ``_UNSET``) to have
+    this function look it up from the database.
     """
-    # Resolve command: explicit arg → DB lookup
+    # Resolve command: explicit arg → DB lookup (only when caller didn't provide)
     cmd = command
-    if not cmd:
+    if cmd is _UNSET:
         cmd = await get_preview_command(workspace_id, port)
 
     if cmd:
@@ -542,8 +561,11 @@ async def _resolve_preview(
         # asset requests (CSS/JS/images) without risking long-lived stale URLs.
         if not force:
             cached_url = await _get_cached_signed_url(sandbox.sandbox_id, port)
-            if cached_url and await _check_signed_url_healthy(cached_url):
-                return cached_url
+            if cached_url:
+                if await _is_preview_live_confirmed(sandbox.sandbox_id, port) \
+                        or await _check_signed_url_healthy(cached_url):
+                    await _set_preview_live_confirmed(sandbox.sandbox_id, port, ttl=10)
+                    return cached_url
 
         preview_info = await sandbox.start_and_get_preview_url(
             cmd, port, expires_in=expires_in,
@@ -556,8 +578,11 @@ async def _resolve_preview(
     # No command known — try signed-URL cache, then generate fresh.
     if not force:
         cached_url = await _get_cached_signed_url(sandbox.sandbox_id, port)
-        if cached_url and await _check_signed_url_healthy(cached_url):
-            return cached_url
+        if cached_url:
+            if await _is_preview_live_confirmed(sandbox.sandbox_id, port) \
+                    or await _check_signed_url_healthy(cached_url):
+                await _set_preview_live_confirmed(sandbox.sandbox_id, port, ttl=10)
+                return cached_url
 
     await _delete_cached_signed_url(sandbox.sandbox_id, port)
     preview_info = await sandbox.get_preview_url(port, expires_in=expires_in)
@@ -582,7 +607,8 @@ async def get_sandbox_preview_url(
     try:
         url = await _resolve_preview(
             sandbox, workspace_id, body.port,
-            command=body.command, force=body.force, expires_in=body.expires_in,
+            command=body.command if body.command else _UNSET,
+            force=body.force, expires_in=body.expires_in,
         )
         return PreviewUrlResponse(url=url, port=body.port, expires_in=body.expires_in)
     except HTTPException:
@@ -703,6 +729,11 @@ async def _preview_redirect(workspace_id: str, port: int, path: str = "") -> Res
     if not workspace or workspace.get("status") != "running":
         raise HTTPException(status_code=404, detail="Preview not available")
 
+    # Extract preview command from the already-fetched workspace to avoid a
+    # second DB query inside _resolve_preview.
+    artifacts = workspace.get("artifacts") or {}
+    preview_cmd = (artifacts.get("preview_servers") or {}).get(str(port))
+
     async def _resolve() -> Response:
         manager = WorkspaceManager.get_instance()
         try:
@@ -715,7 +746,7 @@ async def _preview_redirect(workspace_id: str, port: int, path: str = "") -> Res
             raise HTTPException(status_code=503, detail="Sandbox not available")
 
         try:
-            signed_url = await _resolve_preview(sandbox, workspace_id, port)
+            signed_url = await _resolve_preview(sandbox, workspace_id, port, command=preview_cmd)
         except NotImplementedError:
             raise HTTPException(
                 status_code=501,

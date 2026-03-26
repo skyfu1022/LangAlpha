@@ -147,6 +147,8 @@ class PTCSandbox:
         self._bg_sessions: dict[str, str] = {}
         # Per-port sessions for preview servers (port → (session_id, cmd_id))
         self._preview_sessions: dict[int, tuple[str, str]] = {}
+        # Per-port locks to serialize start_and_get_preview_url (avoids races)
+        self._preview_locks: dict[int, asyncio.Lock] = {}
 
         # Lazy initialization support
         self._ready_event: asyncio.Event | None = None
@@ -2289,50 +2291,53 @@ class PTCSandbox:
         await self._wait_ready()
         assert self.runtime is not None
 
-        # Quick probe: is the server already reachable through the proxy?
-        # This catches the common case where the server is already running
-        # and avoids an unnecessary (destructive) session teardown + restart.
-        # We check the proxy — not an in-sandbox /dev/tcp — because a server
-        # binding to 127.0.0.1 would pass the in-sandbox check but return 502
-        # through the proxy.
-        if await self._is_preview_reachable(port):
-            logger.info("Preview already reachable via proxy, skipping server start", port=port)
-            return await self.get_preview_url(port, expires_in=expires_in)
+        if port not in self._preview_locks:
+            self._preview_locks[port] = asyncio.Lock()
+        async with self._preview_locks[port]:
+            # Quick probe: is the server already reachable through the proxy?
+            # This catches the common case where the server is already running
+            # and avoids an unnecessary (destructive) session teardown + restart.
+            # We check the proxy — not an in-sandbox /dev/tcp — because a server
+            # binding to 127.0.0.1 would pass the in-sandbox check but return 502
+            # through the proxy.
+            if await self._is_preview_reachable(port):
+                logger.info("Preview already reachable via proxy, skipping server start", port=port)
+                return await self.get_preview_url(port, expires_in=expires_in)
 
-        try:
-            await self.start_preview_server(command, port)
-        except Exception as e:
-            logger.warning("Failed to start preview server", command=command, error=str(e))
+            try:
+                await self.start_preview_server(command, port)
+            except Exception as e:
+                logger.warning("Failed to start preview server", command=command, error=str(e))
 
-        # Poll until the port is listening.
-        # Uses bash built-in /dev/tcp (no external tools like nc needed) via
-        # a single lightweight runtime.exec call with an internal retry loop.
-        max_attempts = max(int(startup_delay / 0.5), 1)
-        try:
-            result = await self._runtime_call(
-                self.runtime.exec,
-                f"bash -c 'for i in $(seq 1 {max_attempts}); do"
-                f" (echo > /dev/tcp/localhost/{port}) 2>/dev/null && echo READY && exit 0;"
-                f" sleep 0.5; done; echo TIMEOUT'",
-                timeout=int(startup_delay) + 5,
-                retry_policy=RetryPolicy.SAFE,
-            )
-            if "READY" in result.stdout:
-                logger.info("Preview server port ready", port=port)
-            else:
-                logger.warning(
-                    "Preview server port not reachable after startup delay",
-                    port=port,
-                    startup_delay=startup_delay,
+            # Poll until the port is listening.
+            # Uses bash built-in /dev/tcp (no external tools like nc needed) via
+            # a single lightweight runtime.exec call with an internal retry loop.
+            max_attempts = max(int(startup_delay / 0.5), 1)
+            try:
+                result = await self._runtime_call(
+                    self.runtime.exec,
+                    f"bash -c 'for i in $(seq 1 {max_attempts}); do"
+                    f" (echo > /dev/tcp/localhost/{port}) 2>/dev/null && echo READY && exit 0;"
+                    f" sleep 0.5; done; echo TIMEOUT'",
+                    timeout=int(startup_delay) + 5,
+                    retry_policy=RetryPolicy.SAFE,
                 )
-        except Exception:
-            logger.warning(
-                "Port readiness check failed, proceeding anyway",
-                port=port,
-                exc_info=True,
-            )
+                if "READY" in result.stdout:
+                    logger.info("Preview server port ready", port=port)
+                else:
+                    logger.warning(
+                        "Preview server port not reachable after startup delay",
+                        port=port,
+                        startup_delay=startup_delay,
+                    )
+            except Exception:
+                logger.warning(
+                    "Port readiness check failed, proceeding anyway",
+                    port=port,
+                    exc_info=True,
+                )
 
-        return await self.get_preview_url(port, expires_in=expires_in)
+            return await self.get_preview_url(port, expires_in=expires_in)
 
     _MAX_BG_SESSIONS = 20
 
