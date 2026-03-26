@@ -30,6 +30,12 @@ You are LangAlpha Agent, created by Ginlix AI. You are an investment research ag
 <tool_guide>
 {% include 'components/tool_guide.md.j2' %}
 </tool_guide>
+{% if skills_enabled | default(false) %}
+
+<custom_skills>
+{% include 'components/custom_skills.md.j2' %}
+</custom_skills>
+{% endif %}
 
 <subagent_coordination>
 {% include 'components/subagent_coordination.md.j2' %}

@@ -232,18 +232,12 @@ async def adiscover_skills(
     """Discover skills from sandbox filesystem, downloading only new ones.
 
     For skills already present in ``known_skills`` (keyed by directory name),
-    the cached metadata is returned without downloading. Only skills found in
-    the filesystem but absent from ``known_skills`` trigger a download.
+    the cached metadata is returned without downloading. Cache misses check
+    the skills-lock.json first (single file), falling back to individual
+    SKILL.md downloads only when no lock entry exists.
 
-    Args:
-        backend: SandboxBackend for sandbox I/O (must support ``als_info``
-            and ``adownload_files``).
-        source_path: Sandbox path to scan (e.g. ``/home/workspace/skills/``).
-        known_skills: Pre-parsed skill metadata from the upload manifest.
-            Skills present here are returned as-is without re-downloading.
-
-    Returns:
-        List of all discovered SkillMetadata (known + newly found).
+    Self-healing: orphaned skill dirs (no lock entry) get a lock entry
+    written back after SKILL.md parse.
     """
     items = await backend.als_info(source_path)  # 1 API call
     skill_dirs = [item["path"] for item in items if item.get("is_dir")]
@@ -252,27 +246,61 @@ async def adiscover_skills(
         return []
 
     results: list[SkillMetadata] = []
-    to_download: list[tuple[str, str]] = []  # (dir_path, skill_md_path)
+    unknown_dirs: list[str] = []
 
     for dir_path in skill_dirs:
         dir_name = PurePosixPath(dir_path).name
         if dir_name in known_skills:
-            results.append(known_skills[dir_name])  # Cache hit — no download
+            results.append(known_skills[dir_name])  # Cache hit
         else:
+            unknown_dirs.append(dir_path)
+
+    if not unknown_dirs:
+        return results
+
+    # Try lock file first for all unknown skills (1 download vs N)
+    lock_entries: dict[str, Any] | None = None
+    try:
+        from ptc_agent.agent.middleware.skills.lock import (
+            LOCK_FILENAME,
+            parse_skills_lock,
+            lock_entry_to_skill_metadata,
+        )
+
+        lock_path = str(PurePosixPath(source_path) / LOCK_FILENAME)
+        lock_responses = await backend.adownload_files([lock_path])
+        if lock_responses and not lock_responses[0].error and lock_responses[0].content:
+            lock_text = lock_responses[0].content.decode("utf-8")
+            lock_entries = parse_skills_lock(lock_text)
+    except Exception:
+        logger.debug("Could not download skills-lock.json for discovery")
+
+    # Resolve unknown skills: lock entry -> SKILL.md download -> unconfirmed
+    to_download: list[tuple[str, str]] = []  # (dir_path, skill_md_path)
+    new_lock_entries: dict[str, Any] = {}  # Self-healing entries to write back
+
+    for dir_path in unknown_dirs:
+        dir_name = PurePosixPath(dir_path).name
+        if lock_entries and dir_name in lock_entries:
+            # Lock entry exists — use it directly (no SKILL.md download)
+            skill_md_path = str(PurePosixPath(dir_path) / "SKILL.md")
+            meta = lock_entry_to_skill_metadata(lock_entries[dir_name], skill_md_path)
+            results.append(meta)
+        else:
+            # No lock entry — fall back to SKILL.md download
             skill_md_path = str(PurePosixPath(dir_path) / "SKILL.md")
             to_download.append((dir_path, skill_md_path))
 
-    # Download only SKILL.md files for unknown skills
+    # Download SKILL.md for dirs without lock entries
     if to_download:
         paths = [p for _, p in to_download]
-        responses = await backend.adownload_files(paths)  # parallel downloads
+        responses = await backend.adownload_files(paths)
 
         for (dir_path, skill_md_path), response in zip(
             to_download, responses, strict=True
         ):
             directory_name = PurePosixPath(dir_path).name
             if response.error or response.content is None:
-                # SKILL.md missing or unreadable — still discover as unconfirmed
                 results.append(
                     _make_unconfirmed_metadata(skill_md_path, directory_name)
                 )
@@ -286,5 +314,48 @@ async def adiscover_skills(
                 continue
             meta = parse_skill_metadata(content, skill_md_path, directory_name)
             results.append(meta)
+
+            # Self-healing: create lock entry for orphaned skill
+            try:
+                from ptc_agent.agent.middleware.skills.lock import build_lock_entry
+                import hashlib as _hashlib
+
+                entry = build_lock_entry(
+                    meta,
+                    owner="user",
+                    source="local",
+                    source_type="local",
+                    content_hash=f"sha256:{_hashlib.sha256(content.encode()).hexdigest()}",
+                )
+                new_lock_entries[directory_name] = entry
+            except Exception:
+                pass  # Best-effort self-healing
+
+    # Write back self-healing lock entries if any
+    if new_lock_entries:
+        try:
+            from ptc_agent.agent.middleware.skills.lock import (
+                LOCK_FILENAME,
+                LOCK_FILE_VERSION,
+                serialize_skills_lock,
+            )
+
+            all_entries = dict(lock_entries or {})
+            all_entries.update(new_lock_entries)
+            lock_data = {"version": LOCK_FILE_VERSION, "skills": all_entries}
+            lock_content = serialize_skills_lock(lock_data)
+            lock_path = str(PurePosixPath(source_path) / LOCK_FILENAME)
+            await backend.aupload_files([(lock_path, lock_content.encode("utf-8"))])
+            logger.info(
+                "Self-healing: wrote lock entries for orphaned skills",
+                count=len(new_lock_entries),
+                skills=list(new_lock_entries.keys()),
+            )
+        except Exception:
+            logger.debug("Self-healing lock write failed (non-critical)")
+
+    # NOTE: Full lock ↔ filesystem reconciliation (adds + removes) is handled
+    # post-completion by PTCSandbox.sync_skills_lock(). The self-healing above
+    # is a fallback for cases where sync_skills_lock failed or was skipped.
 
     return results
