@@ -198,6 +198,9 @@ class SafeCrawlerWrapper:
         )
         self._lock = asyncio.Lock()
         self._crawler = None  # Lazy-initialized
+        _VALID_BACKENDS = frozenset({"scrapling", "router"})
+        if backend not in _VALID_BACKENDS:
+            raise ValueError(f"Unknown crawler backend: {backend!r}. Must be one of {_VALID_BACKENDS}")
         self._backend = backend
 
     async def _get_crawler(self):
@@ -206,13 +209,16 @@ class SafeCrawlerWrapper:
             if self._backend == "scrapling":
                 from .scrapling_crawler import ScraplingCrawler
                 self._crawler = ScraplingCrawler()
+            elif self._backend == "router":
+                from .router import ContentRouter
+                self._crawler = ContentRouter()
             else:
                 raise ValueError(f"Unknown crawler backend: {self._backend}")
         return self._crawler
 
     async def _trigger_browser_reset(self) -> None:
         """Reset browser state when circuit opens. Scrapling manages its own lifecycle."""
-        logger.debug("Circuit open — browser reset requested (no-op for scrapling)")
+        logger.debug(f"Circuit open — backend '{self._backend}' has no persistent browser state to reset")
 
     async def crawl(
         self,

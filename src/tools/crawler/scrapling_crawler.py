@@ -126,11 +126,18 @@ class ScraplingCrawler:
             logger.debug(f"Tier 2 failed for {url}: {e}, escalating to Tier 3")
 
         # --- Tier 3: Stealth fetch ---
-        page, html_body, status = await self._tier3_fetch(url)
-        title = _extract_title(page)
-        markdown = _html_to_markdown(html_body)
-        logger.debug(f"Tier 3 (stealth) completed for {url} (status={status})")
-        return CrawlOutput(title=title, html=html_body, markdown=markdown)
+        try:
+            page, html_body, status = await self._tier3_fetch(url)
+            if _needs_stealth(html_body, status):
+                logger.debug(f"Tier 3 still blocked for {url} (status={status})")
+                return CrawlOutput(title="", html="", markdown="")
+            title = _extract_title(page)
+            markdown = _html_to_markdown(html_body)
+            logger.debug(f"Tier 3 (stealth) completed for {url} (status={status})")
+            return CrawlOutput(title=title, html=html_body, markdown=markdown)
+        except Exception as e:
+            logger.debug(f"Tier 3 failed for {url}: {e}")
+            return CrawlOutput(title="", html="", markdown="")
 
     async def _tier1_fetch(self, url: str):
         from scrapling.fetchers import AsyncFetcher
