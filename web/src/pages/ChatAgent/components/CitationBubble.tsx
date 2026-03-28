@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import * as HoverCard from '@radix-ui/react-hover-card';
 import { useCitationMetadata } from './CitationMetadataContext';
 import './CitationBubble.css';
@@ -53,14 +53,6 @@ function CitationBubble({ node: _node, label, href, ...props }: MarkdownComponen
   const displayName = meta?.source || domain;
   const url = href || '';
 
-  const pillRef = useRef<HTMLSpanElement>(null);
-  const handlePillEnter = useCallback(() => {
-    if (pillRef.current) pillRef.current.style.background = 'var(--color-bg-input)';
-  }, []);
-  const handlePillLeave = useCallback(() => {
-    if (pillRef.current) pillRef.current.style.background = 'var(--color-bg-elevated)';
-  }, []);
-
   const handlePillClick = useCallback(() => {
     if (url && /^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
   }, [url]);
@@ -79,14 +71,11 @@ function CitationBubble({ node: _node, label, href, ...props }: MarkdownComponen
     <HoverCard.Root openDelay={300} closeDelay={100}>
       <HoverCard.Trigger asChild>
         <span
-          ref={pillRef}
           role="link"
           tabIndex={0}
           aria-label={`Source: ${displayName}`}
           onClick={handlePillClick}
           onKeyDown={handleKeyDown}
-          onMouseEnter={handlePillEnter}
-          onMouseLeave={handlePillLeave}
           className="cite-bubble-pill"
           style={{
             display: 'inline-flex',
@@ -160,8 +149,8 @@ function CitationBubble({ node: _node, label, href, ...props }: MarkdownComponen
                   WebkitBoxOrient: 'vertical' as const,
                   overflow: 'hidden',
                 }}
-                onMouseEnter={(e) => { (e.target as HTMLElement).style.color = 'var(--color-accent-primary)'; }}
-                onMouseLeave={(e) => { (e.target as HTMLElement).style.color = 'var(--color-text-primary)'; }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--color-accent-primary)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--color-text-primary)'; }}
               >
                 {meta.title}
               </a>
