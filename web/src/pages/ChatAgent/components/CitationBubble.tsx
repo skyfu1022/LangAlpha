@@ -50,7 +50,7 @@ function Favicon({ domain, size = 14 }: { domain: string; size?: number }): Reac
 function CitationBubble({ node: _node, label, href, ...props }: MarkdownComponentProps): React.ReactElement {
   const meta = useCitationMetadata(href || '');
   const domain = label || '';
-  const displayName = meta?.source || domain;
+  const displayName = meta?.source || domain.replace(/\.[^.]+$/, '') || domain;
   const url = href || '';
 
   const handlePillClick = useCallback(() => {

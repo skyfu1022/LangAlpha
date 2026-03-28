@@ -10,3 +10,17 @@
 .cite-bubble-card-title:hover {
   color: var(--color-accent-primary);
 }
+
+@media print {
+  .cite-bubble-pill {
+    background: none !important;
+    color: #333 !important;
+    border: 1px solid #999;
+    padding: 0 4px;
+    font-size: 11px;
+  }
+
+  .cite-bubble-pill img {
+    display: none;
+  }
+}
