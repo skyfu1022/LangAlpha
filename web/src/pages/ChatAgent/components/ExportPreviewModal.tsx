@@ -538,7 +538,7 @@ export default function ExportPreviewModal({
             className="markdown-print-content print-preview-active export-preview-source"
             style={cssVars}
           >
-            <Markdown variant="panel" content={displayContent} />
+            <Markdown variant="panel" content={displayContent} codeTheme="light" />
           </div>
           {/* Paged.js renders paginated page sheets here */}
           <div ref={pagedContainerRef} className="export-preview-paged" />

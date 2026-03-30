@@ -124,7 +124,7 @@
 }
 .export-preview-content .markdown-print-content p,
 .export-preview-content .markdown-print-content li,
-.export-preview-content .markdown-print-content span,
+.export-preview-content .markdown-print-content span:not(.katex *, pre *),
 .export-preview-content .markdown-print-content div,
 .export-preview-content .markdown-print-content td,
 .export-preview-content .markdown-print-content th,
@@ -154,7 +154,6 @@
 }
 .export-preview-content .markdown-print-content pre code,
 .export-preview-content .markdown-print-content pre span {
-  color: #1a1a1a !important;
   background: transparent !important;
 }
 .export-preview-content .markdown-print-content code {
@@ -180,6 +179,15 @@
 }
 .export-preview-content .markdown-print-content hr {
   border-color: #d1d5db !important;
+}
+/* KaTeX — inherit color via currentColor cascade; no !important so \textcolor wins */
+.export-preview-content .markdown-print-content .katex {
+  color: #1a1a1a;
+}
+/* Images — constrain to page width */
+.export-preview-content .markdown-print-content img {
+  max-width: 100% !important;
+  height: auto !important;
 }
 
 /* Hidden source element — keeps original content for react-to-print PDF export */
@@ -423,6 +431,21 @@
   line-height: inherit !important;
   font-family: inherit !important;
 }
+/* Page break avoidance for block-level content */
+.print-preview-active img {
+  max-width: 100% !important;
+  height: auto !important;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.print-preview-active pre {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.print-preview-active .katex-display {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
 /* Tables: clip horizontal overflow (no scrollbar in print/preview) */
 .print-preview-active .overflow-x-auto {
   overflow-x: hidden !important;
@@ -491,7 +514,7 @@
 
   /* Light-mode colors */
   .markdown-print-content p, .markdown-print-content li,
-  .markdown-print-content span, .markdown-print-content div { color: #1a1a1a !important; }
+  .markdown-print-content span:not(.katex *, pre *), .markdown-print-content div { color: #1a1a1a !important; }
   .markdown-print-content h1, .markdown-print-content h2, .markdown-print-content h3,
   .markdown-print-content h4, .markdown-print-content h5, .markdown-print-content h6 { color: #111111 !important; }
   .markdown-print-content strong { color: #111111 !important; }
@@ -512,9 +535,9 @@
     border: 1px solid #e0e0e0 !important;
     color: #1a1a1a !important;
     page-break-inside: avoid;
+    break-inside: avoid;
   }
   .markdown-print-content pre code, .markdown-print-content pre span {
-    color: #1a1a1a !important;
     background: transparent !important;
   }
   .markdown-print-content code {
@@ -546,6 +569,18 @@
     font-weight: 600 !important;
   }
   .markdown-print-content tr:nth-child(even) { background-color: #f9fafb !important; }
+
+  /* KaTeX — cascade color via currentColor; no !important so \textcolor wins */
+  .markdown-print-content .katex { color: #1a1a1a; }
+  .markdown-print-content .katex-display { page-break-inside: avoid; break-inside: avoid; }
+
+  /* Images */
+  .markdown-print-content img {
+    max-width: 100% !important;
+    height: auto !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
 
   /* Hide Paged.js preview, restore hidden source for printing */
   .export-preview-paged { display: none !important; }

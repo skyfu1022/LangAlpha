@@ -17,11 +17,13 @@ interface CodeBlockProps {
   language: string | null;
   code: string;
   compact?: boolean;
+  codeTheme?: 'light' | 'dark';
 }
 
 // --- CodeBlock component ---
-function CodeBlock({ language, code, compact = false }: CodeBlockProps): React.ReactElement {
+function CodeBlock({ language, code, compact = false, codeTheme }: CodeBlockProps): React.ReactElement {
   const { theme } = useTheme();
+  const effectiveTheme = codeTheme ?? theme;
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (): void => {
@@ -49,7 +51,7 @@ function CodeBlock({ language, code, compact = false }: CodeBlockProps): React.R
         )}
         <SyntaxHighlighter
           language={language || 'text'}
-          style={theme === 'light' ? oneLight : oneDark}
+          style={effectiveTheme === 'light' ? oneLight : oneDark}
           customStyle={{
             margin: 0,
             padding: compact ? '0.6rem' : '1rem',
@@ -533,9 +535,11 @@ interface MarkdownProps {
   className?: string;
   style?: React.CSSProperties;
   onOpenFile?: (path: string) => void;
+  /** Force code blocks to use a specific syntax theme regardless of app theme */
+  codeTheme?: 'light' | 'dark';
 }
 
-function Markdown({ content, variant = 'panel', className = '', style, onOpenFile }: MarkdownProps): React.ReactElement {
+function Markdown({ content, variant = 'panel', className = '', style, onOpenFile, codeTheme }: MarkdownProps): React.ReactElement {
   const config = VARIANTS[variant];
   const processed = useMemo(
     () => normalizeLatexDelimiters(escapeCurrencyDollars(transformCitationBubbles(fixMarkdownTables(stripFrontMatter(content))))),
@@ -545,7 +549,18 @@ function Markdown({ content, variant = 'panel', className = '', style, onOpenFil
   const lineKey = useMemo(() => (processed.match(/\n/g) || []).length, [processed]);
 
   const components = useMemo(() => {
-    if (!onOpenFile && variant !== 'chat') return config.components;
+    let result = config.components;
+
+    // Override pre to pass codeTheme to CodeBlock when specified
+    if (codeTheme) {
+      const themedPre = ({ node: _node, children, ..._props }: MarkdownComponentProps) => {
+        const { language, code } = extractCodeFromPre(children);
+        return <CodeBlock language={language} code={code} compact={variant === 'compact'} codeTheme={codeTheme} />;
+      };
+      result = { ...result, pre: themedPre };
+    }
+
+    if (!onOpenFile && variant !== 'chat') return result;
     const fileAwareA = ({ node: _node, href, children, ...props }: MarkdownComponentProps) => {
       if (isFilePath(href)) {
         // Image file linked as [name](path.png) -- render as embedded image
@@ -566,11 +581,11 @@ function Markdown({ content, variant = 'panel', className = '', style, onOpenFil
         return <span {...props}>{children}</span>;
       }
       // External URL -- default behavior
-      const DefaultA = config.components.a;
+      const DefaultA = result.a;
       return <DefaultA node={_node} href={href} {...props}>{children}</DefaultA>;
     };
-    return { ...config.components, a: fileAwareA };
-  }, [onOpenFile, variant, config.components]);
+    return { ...result, a: fileAwareA };
+  }, [onOpenFile, variant, config.components, codeTheme]);
 
   return (
     <div
