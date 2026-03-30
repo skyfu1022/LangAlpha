@@ -5,6 +5,7 @@ import remarkCjkFriendly from 'remark-cjk-friendly';
 import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import 'katex/dist/katex.min.css';
 import SyntaxHighlighter, { oneDark, oneLight } from './SyntaxHighlighter';
 import { Copy, Check } from 'lucide-react';
@@ -12,6 +13,41 @@ import { useTheme } from '@/contexts/ThemeContext';
 import WorkspaceImage from './WorkspaceImage';
 import { isFilePath, isImagePath, normalizeFilePath } from './FileCard';
 import CitationBubble from './CitationBubble';
+
+// Sanitize schema: extends GitHub-style defaults to allow KaTeX output,
+// cite-bubble custom element, and MathML/SVG for accessibility.
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    // Custom citation element
+    'cite-bubble',
+    // MathML (KaTeX accessibility tree inside .katex-mathml)
+    'math', 'annotation', 'semantics',
+    'mi', 'mn', 'mo', 'mrow', 'mfrac', 'msqrt', 'mroot', 'mstyle',
+    'msub', 'msup', 'msubsup', 'munder', 'mover', 'munderover',
+    'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom',
+    // SVG (KaTeX stretchy symbols: radicals, braces, arrows)
+    'svg', 'path', 'line',
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    'cite-bubble': ['label', 'href'],
+    span: [
+      ...(defaultSchema.attributes?.span ?? []),
+      'className', 'style', 'ariaHidden',
+    ],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      'className', 'style',
+    ],
+    math: ['xmlns', 'display'],
+    annotation: ['encoding'],
+    svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style'],
+    path: ['d'],
+    line: ['x1', 'x2', 'y1', 'y2'],
+  },
+};
 
 interface CodeBlockProps {
   language: string | null;
@@ -592,7 +628,7 @@ function Markdown({ content, variant = 'panel', className = '', style, onOpenFil
       className={`${config.className} ${className}`.trim()}
       style={{ ...config.style, ...style }}
     >
-      <ReactMarkdown key={lineKey} remarkPlugins={[remarkGfm, remarkCjkFriendly, remarkMath]} rehypePlugins={[[rehypeKatex, { strict: false }], rehypeRaw]} components={components}>
+      <ReactMarkdown key={lineKey} remarkPlugins={[remarkGfm, remarkCjkFriendly, remarkMath]} rehypePlugins={[[rehypeKatex, { strict: false }], rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={components}>
         {processed}
       </ReactMarkdown>
     </div>
