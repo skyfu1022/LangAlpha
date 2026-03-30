@@ -186,7 +186,7 @@ def _get_allowed_providers(custom_providers: list) -> set[str]:
     from src.llms.llm import ModelConfig
     config = ModelConfig()
     allowed = {
-        name for name, info in config._flat_providers.items()
+        name for name, info in config.flat_providers.items()
         if info.get("access_type") != "oauth"
     }
     for cp in custom_providers:
@@ -576,7 +576,7 @@ def _build_provider_catalog() -> list[dict]:
     from src.llms.llm import ModelConfig
 
     config = ModelConfig()
-    flat = config._flat_providers
+    flat = config.flat_providers
 
     # First pass: collect region variants per parent
     # region_variant_key -> {provider, region, base_url, sdk, ...}

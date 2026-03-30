@@ -54,17 +54,9 @@ async def maybe_complete_personalization(user_id: str) -> bool:
         if user.get("personalization_completed"):
             return False
 
-        # Check for API keys
-        from src.server.database.api_keys import is_byok_active
-
-        has_key = await is_byok_active(user_id)
-        if not has_key:
-            # Check for OAuth connections
-            from src.server.database.oauth_tokens import has_any_oauth_token
-
-            has_key = await has_any_oauth_token(user_id)
-
-        if has_key:
+        # get_user() already returns has_api_key and has_oauth_token as
+        # computed columns — use them instead of issuing separate queries.
+        if user.get("has_api_key") or user.get("has_oauth_token"):
             await user_db.update_user(
                 user_id=user_id, personalization_completed=True
             )

@@ -312,7 +312,7 @@ def _validate_custom_models(custom_models: list, custom_providers: list | None =
     seen_names: set[str] = set()
 
     # Build valid provider set: all known flat providers + custom providers
-    valid_providers = set(mc._flat_providers.keys())
+    valid_providers = set(mc.flat_providers.keys())
     if custom_providers:
         valid_providers.update(
             cp["name"] for cp in custom_providers if isinstance(cp, dict) and cp.get("name")
