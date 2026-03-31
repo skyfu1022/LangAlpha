@@ -9,6 +9,8 @@ export interface ModelMetadataEntry {
   provider?: string;
   sdk?: string;
   access_type?: string;
+  /** "true" when variant needs its own API key (different env_key from parent). */
+  requires_own_key?: string;
 }
 
 /**
@@ -45,8 +47,10 @@ export function filterModelsByAccess(
       // 1. Direct match on model's own provider
       if (configuredSet.has(modelProvider)) return true;
 
-      // 2. GroupKey fallback — only if access_type matches
+      // 2. GroupKey fallback — only if access_type matches AND variant
+      //    shares credentials with parent (no independent env_key).
       if (configuredSet.has(groupKey)) {
+        if (meta?.requires_own_key === 'true') return false;
         const configuredType = configuredTypeMap.get(groupKey);
         const modelAccessType = meta?.access_type ?? 'api_key';
         return configuredType === modelAccessType;

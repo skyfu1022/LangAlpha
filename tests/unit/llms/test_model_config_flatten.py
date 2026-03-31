@@ -219,6 +219,32 @@ class TestFlattenProviders:
         with pytest.raises(ValueError, match="sdk"):
             ModelConfig._flatten_providers(grouped)
 
+    def test_get_model_metadata_requires_own_key_for_regional_variants(self):
+        """Models from variants with different env_key should have requires_own_key."""
+        mc = ModelConfig()
+        metadata = mc.get_model_metadata()
+
+        # z-ai-cn models should have requires_own_key (different env_key from z-ai parent)
+        cn_models = {k: v for k, v in metadata.items() if v.get("provider") == "z-ai-cn"}
+        for model_name, entry in cn_models.items():
+            assert entry.get("requires_own_key") == "true", (
+                f"{model_name} (z-ai-cn) should have requires_own_key='true'"
+            )
+
+        # z-ai models should NOT have requires_own_key (direct parent, no parent_provider)
+        zai_models = {k: v for k, v in metadata.items() if v.get("provider") == "z-ai"}
+        for model_name, entry in zai_models.items():
+            assert "requires_own_key" not in entry, (
+                f"{model_name} (z-ai) should not have requires_own_key"
+            )
+
+        # deepinfra models should NOT have requires_own_key (inherits openrouter env_key)
+        di_models = {k: v for k, v in metadata.items() if v.get("provider") == "deepinfra"}
+        for model_name, entry in di_models.items():
+            assert "requires_own_key" not in entry, (
+                f"{model_name} (deepinfra) should not have requires_own_key"
+            )
+
     def test_get_display_name_prefers_own_over_parent(self):
         """Variant with its own display_name should use it, not parent's."""
         grouped = {
