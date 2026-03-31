@@ -248,7 +248,7 @@ export default function ModelPickStep() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       {/* Section heading */}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
@@ -359,7 +359,7 @@ export default function ModelPickStep() {
           )}
         </div>
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 max-h-[40vh] sm:max-h-none overflow-y-auto">
           {displayModels.map((model) => {
             const isChecked = starred.has(model);
             const meta = modelMetadata[model] ?? {};

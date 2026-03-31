@@ -556,7 +556,7 @@ export default function ConnectStep() {
 
   if (isExistingCustom) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:gap-6">
         <div className="flex flex-col gap-1">
           <h2
             className="font-semibold"
@@ -639,7 +639,7 @@ export default function ConnectStep() {
 
   if (isCustom) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:gap-6">
         <div className="flex flex-col gap-1">
           <h2
             className="font-semibold"
@@ -791,7 +791,7 @@ export default function ConnectStep() {
 
   if (method === 'oauth') {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4 sm:gap-6">
         <div className="flex flex-col gap-1">
           <h2
             className="font-semibold"
@@ -1042,7 +1042,7 @@ export default function ConnectStep() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <div className="flex flex-col gap-1">
         <h2
           className="font-semibold"

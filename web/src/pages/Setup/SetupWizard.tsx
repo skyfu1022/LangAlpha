@@ -6,6 +6,7 @@ import { Shield, X } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useConfiguredProviders } from '@/hooks/useConfiguredProviders';
 import { skipSetup } from '@/hooks/useSetupGate';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 // Self-hosted / local dev: always allow exiting the wizard since keys are in .env
 const AUTH_ENABLED = !!import.meta.env.VITE_SUPABASE_URL;
@@ -136,6 +137,7 @@ function slideVariants(direction: number) {
 export default function SetupWizard() {
   const { t } = useTranslation();
   const { theme } = useTheme();
+  const isMobile = useIsMobile();
   const logo = theme === 'light' ? logoDark : logoLight;
   const location = useLocation();
   const navigate = useNavigate();
@@ -159,7 +161,7 @@ export default function SetupWizard() {
         <button
           type="button"
           onClick={() => { skipSetup(); navigate('/dashboard'); }}
-          className="fixed top-4 right-4 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-80"
+          className="fixed top-4 right-4 z-50 flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:opacity-80"
           style={{
             color: 'var(--color-text-secondary)',
             background: 'var(--color-bg-surface)',
@@ -167,17 +169,17 @@ export default function SetupWizard() {
           }}
         >
           <X className="h-3.5 w-3.5" />
-          {t('setup.exitSetup', 'Exit setup')}
+          <span className="hidden sm:inline">{t('setup.exitSetup', 'Exit setup')}</span>
         </button>
       )}
 
       {/* Branded header */}
-      <header className="flex flex-col items-center gap-4 pt-10 pb-2 px-4">
+      <header className="flex flex-col items-center gap-3 sm:gap-4 pt-5 sm:pt-10 pb-2 px-4">
         <img src={logo} alt="LangAlpha" className="h-7" />
         <h1
           className="text-center font-semibold"
           style={{
-            fontSize: '1.5rem',
+            fontSize: isMobile ? '1.125rem' : '1.5rem',
             lineHeight: 1.3,
             color: 'var(--color-text-primary)',
           }}
@@ -185,7 +187,7 @@ export default function SetupWizard() {
           {t('setup.brandedHeader')}
         </h1>
         <p
-          className="flex items-center gap-1.5 text-xs"
+          className="hidden sm:flex items-center gap-1.5 text-xs"
           style={{ color: 'var(--color-text-tertiary)' }}
         >
           <Shield className="h-3.5 w-3.5" />
@@ -194,7 +196,7 @@ export default function SetupWizard() {
       </header>
 
       {/* Progress stepper */}
-      <div className="py-6">
+      <div className="py-3 sm:py-6">
         <ProgressStepper currentDot={currentDot} labels={stepperLabels} />
       </div>
 
@@ -205,8 +207,9 @@ export default function SetupWizard() {
         className="flex-1 w-full mx-auto"
         style={{
           maxWidth: 640,
-          padding: 'clamp(24px, 5vw, 48px)',
+          padding: 'clamp(16px, 5vw, 48px)',
           paddingTop: 0,
+          paddingBottom: 'env(safe-area-inset-bottom, 16px)',
         }}
       >
         <AnimatePresence mode="wait" initial={false}>
