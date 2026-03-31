@@ -173,34 +173,6 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
   const { extPct, extType, extPrice: _extPrice2 } = getExtendedHoursInfo(marketStatus, item, { shortLabels: true });
   const extColor = extType === 'pre' ? '#fbbf24' : '#3b82f6';
 
-  const menuItems = (
-    <>
-      {isMobile ? (
-        <>
-          <DropdownMenuItem onSelect={() => onEdit?.(item)}>
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete
-          </DropdownMenuItem>
-        </>
-      ) : (
-        <>
-          <ContextMenuItem onSelect={() => onEdit?.(item)}>
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </ContextMenuItem>
-          <ContextMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete
-          </ContextMenuItem>
-        </>
-      )}
-    </>
-  );
-
   const rowContent = (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -268,7 +240,14 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {menuItems}
+              <DropdownMenuItem onSelect={() => onEdit?.(item)}>
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -281,7 +260,16 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
     return (
       <ContextMenu>
         <ContextMenuTrigger asChild>{rowContent}</ContextMenuTrigger>
-        <ContextMenuContent>{menuItems}</ContextMenuContent>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={() => onEdit?.(item)}>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </ContextMenuItem>
+          <ContextMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </ContextMenuItem>
+        </ContextMenuContent>
       </ContextMenu>
     );
   }

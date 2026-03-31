@@ -29,6 +29,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenuItem: ({ children, onSelect, ...props }: any) => (
     <button onClick={onSelect} {...props}>{children}</button>
   ),
+  DropdownMenuSeparator: () => <hr />,
 }));
 
 // --- Default props helper ---

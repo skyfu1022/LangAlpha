@@ -74,7 +74,6 @@ function CardMenu({ workspace, onTogglePin, onDelete }: CardMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
           className="h-8 w-8 rounded-md transition-colors flex items-center justify-center hover:bg-[var(--color-border-muted)]"
           style={{ color: 'var(--color-text-tertiary)' }}
