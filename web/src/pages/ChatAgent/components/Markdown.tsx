@@ -5,6 +5,7 @@ import remarkCjkFriendly from 'remark-cjk-friendly';
 import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import 'katex/dist/katex.min.css';
 import SyntaxHighlighter, { oneDark, oneLight } from './SyntaxHighlighter';
 import { Copy, Check } from 'lucide-react';
@@ -13,15 +14,52 @@ import WorkspaceImage from './WorkspaceImage';
 import { isFilePath, isImagePath, normalizeFilePath } from './FileCard';
 import CitationBubble from './CitationBubble';
 
+// Sanitize schema: extends GitHub-style defaults to allow KaTeX output,
+// cite-bubble custom element, and MathML/SVG for accessibility.
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    // Custom citation element
+    'cite-bubble',
+    // MathML (KaTeX accessibility tree inside .katex-mathml)
+    'math', 'annotation', 'semantics',
+    'mi', 'mn', 'mo', 'mrow', 'mfrac', 'msqrt', 'mroot', 'mstyle',
+    'msub', 'msup', 'msubsup', 'munder', 'mover', 'munderover',
+    'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'mpadded', 'mphantom',
+    // SVG (KaTeX stretchy symbols: radicals, braces, arrows)
+    'svg', 'path', 'line',
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    'cite-bubble': ['label', 'href'],
+    span: [
+      ...(defaultSchema.attributes?.span ?? []),
+      'className', 'style', 'ariaHidden',
+    ],
+    div: [
+      ...(defaultSchema.attributes?.div ?? []),
+      'className', 'style',
+    ],
+    math: ['xmlns', 'display'],
+    annotation: ['encoding'],
+    svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style'],
+    path: ['d'],
+    line: ['x1', 'x2', 'y1', 'y2'],
+  },
+};
+
 interface CodeBlockProps {
   language: string | null;
   code: string;
   compact?: boolean;
+  codeTheme?: 'light' | 'dark';
 }
 
 // --- CodeBlock component ---
-function CodeBlock({ language, code, compact = false }: CodeBlockProps): React.ReactElement {
+function CodeBlock({ language, code, compact = false, codeTheme }: CodeBlockProps): React.ReactElement {
   const { theme } = useTheme();
+  const effectiveTheme = codeTheme ?? theme;
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (): void => {
@@ -30,26 +68,62 @@ function CodeBlock({ language, code, compact = false }: CodeBlockProps): React.R
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // When codeTheme is set, use explicit colors instead of CSS vars.
+  // CSS vars resolve to the current theme at render time and get baked into
+  // innerHTML clones (Paged.js) and react-to-print iframes.
+  const isForceLight = codeTheme === 'light';
+  const bgColor = isForceLight ? '#f8f9fa' : 'var(--color-bg-code)';
+  const borderColor = isForceLight ? '#e0e0e0' : 'var(--color-border-muted)';
+  const labelColor = isForceLight ? '#6b7280' : 'var(--color-text-tertiary)';
+
+  // Export/print mode: Notion-style clean code block — no header chrome,
+  // just code on a light gray background. Page-break-inside:avoid keeps
+  // the block together across pages.
+  if (isForceLight) {
+    return (
+      <div style={{ margin: compact ? '4px 0' : '6px 0' }}>
+        <div className="rounded overflow-hidden"
+          style={{ backgroundColor: '#f7f6f3', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+          <SyntaxHighlighter
+            language={language || 'text'}
+            style={oneLight}
+            customStyle={{
+              margin: 0,
+              padding: '0.8rem 1rem',
+              backgroundColor: 'transparent',
+              fontSize: compact ? '0.75rem' : '0.8rem',
+              lineHeight: '1.6',
+            }}
+            codeTagProps={{ style: { backgroundColor: 'transparent' } }}
+            wrapLongLines
+          >
+            {code}
+          </SyntaxHighlighter>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ margin: compact ? '4px 0' : '6px 0' }}>
       <div className="rounded-lg overflow-hidden"
-        style={{ backgroundColor: 'var(--color-bg-code)', border: '1px solid var(--color-border-muted)' }}>
+        style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}` }}>
         {!compact && (
           <div className="flex items-center justify-between px-3 py-1.5"
-            style={{ borderBottom: '1px solid var(--color-border-muted)' }}>
-            <span className="text-xs font-mono" style={{ color: 'var(--color-text-tertiary)' }}>
+            style={{ borderBottom: `1px solid ${borderColor}` }}>
+            <span className="text-xs font-mono" style={{ color: labelColor }}>
               {language || 'text'}
             </span>
             <button onClick={handleCopy}
               className="flex items-center gap-1 text-xs hover:opacity-100 transition-opacity"
-              style={{ color: 'var(--color-text-tertiary)', background: 'none', border: 'none', cursor: 'pointer' }}>
+              style={{ color: labelColor, background: 'none', border: 'none', cursor: 'pointer' }}>
               {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
             </button>
           </div>
         )}
         <SyntaxHighlighter
           language={language || 'text'}
-          style={theme === 'light' ? oneLight : oneDark}
+          style={effectiveTheme === 'light' ? oneLight : oneDark}
           customStyle={{
             margin: 0,
             padding: compact ? '0.6rem' : '1rem',
@@ -533,9 +607,11 @@ interface MarkdownProps {
   className?: string;
   style?: React.CSSProperties;
   onOpenFile?: (path: string) => void;
+  /** Force code blocks to use a specific syntax theme regardless of app theme */
+  codeTheme?: 'light' | 'dark';
 }
 
-function Markdown({ content, variant = 'panel', className = '', style, onOpenFile }: MarkdownProps): React.ReactElement {
+function Markdown({ content, variant = 'panel', className = '', style, onOpenFile, codeTheme }: MarkdownProps): React.ReactElement {
   const config = VARIANTS[variant];
   const processed = useMemo(
     () => normalizeLatexDelimiters(escapeCurrencyDollars(transformCitationBubbles(fixMarkdownTables(stripFrontMatter(content))))),
@@ -545,7 +621,18 @@ function Markdown({ content, variant = 'panel', className = '', style, onOpenFil
   const lineKey = useMemo(() => (processed.match(/\n/g) || []).length, [processed]);
 
   const components = useMemo(() => {
-    if (!onOpenFile && variant !== 'chat') return config.components;
+    let result = config.components;
+
+    // Override pre to pass codeTheme to CodeBlock when specified
+    if (codeTheme) {
+      const themedPre = ({ node: _node, children, ..._props }: MarkdownComponentProps) => {
+        const { language, code } = extractCodeFromPre(children);
+        return <CodeBlock language={language} code={code} compact={variant === 'compact'} codeTheme={codeTheme} />;
+      };
+      result = { ...result, pre: themedPre };
+    }
+
+    if (!onOpenFile && variant !== 'chat') return result;
     const fileAwareA = ({ node: _node, href, children, ...props }: MarkdownComponentProps) => {
       if (isFilePath(href)) {
         // Image file linked as [name](path.png) -- render as embedded image
@@ -566,18 +653,18 @@ function Markdown({ content, variant = 'panel', className = '', style, onOpenFil
         return <span {...props}>{children}</span>;
       }
       // External URL -- default behavior
-      const DefaultA = config.components.a;
+      const DefaultA = result.a;
       return <DefaultA node={_node} href={href} {...props}>{children}</DefaultA>;
     };
-    return { ...config.components, a: fileAwareA };
-  }, [onOpenFile, variant, config.components]);
+    return { ...result, a: fileAwareA };
+  }, [onOpenFile, variant, config.components, codeTheme]);
 
   return (
     <div
       className={`${config.className} ${className}`.trim()}
       style={{ ...config.style, ...style }}
     >
-      <ReactMarkdown key={lineKey} remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkCjkFriendly, remarkMath]} rehypePlugins={[[rehypeKatex, { strict: false }], rehypeRaw]} components={components}>
+      <ReactMarkdown key={lineKey} remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkCjkFriendly, remarkMath]} rehypePlugins={[[rehypeKatex, { strict: false }], rehypeRaw, [rehypeSanitize, sanitizeSchema]]} components={components}>
         {processed}
       </ReactMarkdown>
     </div>
