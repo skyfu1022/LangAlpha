@@ -1,6 +1,6 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ModelTierConfig } from '@/components/model/ModelTierConfig';
 import type { ProviderModelsData } from '@/components/model/types';
@@ -11,6 +11,7 @@ import type { ModelMetadataEntry } from '@/hooks/useFilteredModels';
 import { useModelAccessMap } from '@/hooks/usePlatformModels';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useUpdatePreferences } from '@/hooks/useUpdatePreferences';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // DefaultsStep — Step 5: Set default primary + flash models
@@ -19,9 +20,10 @@ import { useUpdatePreferences } from '@/hooks/useUpdatePreferences';
 export default function DefaultsStep() {
   const navigate = useNavigate();
   const { models, platform, isLoading: modelsLoading } = useAllModels();
-  const { providers: configuredProviders, isLoading: providersLoading } = useConfiguredProviders();
+  const { providers: configuredProviders } = useConfiguredProviders();
   const { preferences } = usePreferences();
   const updatePreferences = useUpdatePreferences();
+  const { t } = useTranslation();
 
   // ---------------------------------------------------------------------------
   // Filter models to only those the user has access to.
@@ -96,29 +98,6 @@ export default function DefaultsStep() {
 
   const canContinue = Boolean(primaryModel && flashModel);
 
-  // Collect all user-accessible model names for fallback list
-  const allAccessibleModels = useMemo<string[]>(() => {
-    const out: string[] = [];
-    for (const group of Object.values(normalizedModels)) {
-      if (group.models) out.push(...group.models);
-    }
-    return out;
-  }, [normalizedModels]);
-
-  // Seed fallback with all accessible models (minus primary/flash) once.
-  // Guard on !providersLoading to avoid seeding with unfiltered models
-  // before the configured provider set has loaded.
-  const fallbackSeeded = useRef(false);
-  useEffect(() => {
-    if (!fallbackSeeded.current && !providersLoading && allAccessibleModels.length > 0) {
-      fallbackSeeded.current = true;
-      setAdvancedModels((prev) => ({
-        ...prev,
-        fallbackModels: allAccessibleModels.filter((m) => m !== primaryModel && m !== flashModel),
-      }));
-    }
-  }, [allAccessibleModels, providersLoading, primaryModel, flashModel]);
-
   // ---------------------------------------------------------------------------
   // Handlers
   // ---------------------------------------------------------------------------
@@ -151,9 +130,7 @@ export default function DefaultsStep() {
           preferred_flash_model: flashModel,
           summarization_model: summarization,
           fetch_model: fetchModel,
-          fallback_models: advancedModels.fallbackModels.length > 0
-            ? advancedModels.fallbackModels
-            : null,
+          fallback_models: advancedModels.fallbackModels,
         },
       });
 
@@ -161,11 +138,11 @@ export default function DefaultsStep() {
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } }; message?: string };
       const detail = err?.response?.data?.detail;
-      setError(typeof detail === 'string' ? detail : err?.message ?? 'Failed to save model preferences.');
+      setError(typeof detail === 'string' ? detail : err?.message ?? t('setup.errorSavePrefs'));
     } finally {
       setSaving(false);
     }
-  }, [primaryModel, flashModel, advancedModels, updatePreferences, navigate]);
+  }, [primaryModel, flashModel, advancedModels, updatePreferences, navigate, t]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -187,13 +164,33 @@ export default function DefaultsStep() {
           className="font-semibold"
           style={{ fontSize: '1.125rem', color: 'var(--color-text-primary)' }}
         >
-          Choose your models
+          {t('setup.chooseYourModels')}
         </h2>
         <p
           className="text-sm"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          Select which models to use for deep research and quick answers. You can change these anytime.
+          {t('setup.chooseYourModelsDesc')}
+        </p>
+      </div>
+
+      {/* Model access reminder */}
+      <div
+        className="flex items-start gap-2.5 rounded-lg px-3.5 py-3"
+        style={{
+          background: 'var(--color-accent-soft)',
+          border: '1px solid var(--color-accent-primary)',
+        }}
+      >
+        <Info
+          className="h-4 w-4 shrink-0 mt-0.5"
+          style={{ color: 'var(--color-accent-primary)' }}
+        />
+        <p
+          className="text-xs leading-relaxed"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          {t('setup.modelAccessReminder')}
         </p>
       </div>
 
@@ -222,7 +219,7 @@ export default function DefaultsStep() {
       {/* Navigation buttons */}
       <div className="flex items-center justify-between pt-2">
         <Button variant="outline" onClick={handleBack}>
-          Back
+          {t('setup.back')}
         </Button>
         <Button
           variant="default"
@@ -233,10 +230,10 @@ export default function DefaultsStep() {
           {saving ? (
             <>
               <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-              Saving...
+              {t('setup.saving')}
             </>
           ) : (
-            'Continue'
+            t('setup.continue')
           )}
         </Button>
       </div>

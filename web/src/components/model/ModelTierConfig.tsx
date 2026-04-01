@@ -123,10 +123,10 @@ function FallbackModelsPicker({
         Fallback Models
       </label>
       <p
-        className="text-xs"
+        className="text-xs leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Used when the primary or flash model is unavailable
+        Tried in order when your primary or flash model is unavailable. Only add models you have access to. If none selected, no fallback is used.
       </p>
 
       {/* Selected chips with remove */}

@@ -308,7 +308,7 @@ async def resolve_llm_config(
             setattr(config.llm, config_field, user_val)
 
     user_fallback = model_pref.get("fallback_models")
-    if user_fallback:
+    if user_fallback is not None:
         if config is base_config:
             config = config.model_copy(deep=True)
         config.llm.fallback = user_fallback

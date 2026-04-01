@@ -319,7 +319,7 @@ function Settings() {
           custom_providers: cleanCustomProviders.length > 0 ? cleanCustomProviders : null,
           summarization_model: summarizationModel || null,
           fetch_model: fetchModel || null,
-          fallback_models: cleanFallback.length > 0 ? cleanFallback : null,
+          fallback_models: cleanFallback,
         },
       });
 
