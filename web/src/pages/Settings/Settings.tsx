@@ -507,13 +507,17 @@ function Settings() {
   const handleCustomModelSave = () => {
     const err = validateCustomModelForm(customModelForm, customModels, editingCustomModelIdx);
     if (err) { setCustomModelError(err); return; }
+    const existing = editingCustomModelIdx != null ? customModels[editingCustomModelIdx] : undefined;
     const entry: CustomModelEntry = {
+      ...(existing ?? {}),
       name: customModelForm.name.trim(),
       model_id: customModelForm.model_id.trim(),
       provider: customModelForm.provider.trim(),
     };
     if (customModelForm.parameters?.trim()) entry.parameters = JSON.parse(customModelForm.parameters.trim());
+    else delete entry.parameters;
     if (customModelForm.extra_body?.trim()) entry.extra_body = JSON.parse(customModelForm.extra_body.trim());
+    else delete entry.extra_body;
     setCustomModels(prev => {
       const next = [...prev];
       if (editingCustomModelIdx != null) next[editingCustomModelIdx] = entry;
@@ -818,7 +822,8 @@ function Settings() {
         out[provider] = { ...typed, models: [...(typed.models ?? [])] };
       }
     }
-    // Append custom models grouped by their provider
+    // Append custom models grouped by their provider, and augment metadata
+    const augmentedMetadata = { ...modelMetadata };
     for (const cm of customModels) {
       const key = cm.provider;
       if (!out[key]) {
@@ -827,15 +832,18 @@ function Settings() {
       if (!out[key].models!.includes(cm.name)) {
         out[key].models!.push(cm.name);
       }
+      if (!augmentedMetadata[cm.name]) {
+        augmentedMetadata[cm.name] = { provider: cm.provider, sdk: 'custom' };
+      }
     }
     if (platform) {
       // Platform mode: tier filter handles BYOK + OAuth + plan access in one pass.
-      return filterByPlatformTier(out, modelMetadata, platform);
+      return filterByPlatformTier(out, augmentedMetadata, platform);
     }
     // OSS mode: filter by configured providers only.
     const configuredSet = new Set(localConfiguredProviders.map(p => p.provider));
     const configuredTypeMap = buildConfiguredTypeMap(localConfiguredProviders);
-    return filterModelsByAccess(out, modelMetadata, configuredSet, configuredTypeMap);
+    return filterModelsByAccess(out, augmentedMetadata, configuredSet, configuredTypeMap);
   }, [availableModels, customModels, modelMetadata, localConfiguredProviders, platform]);
 
   const modelAccessMap = useModelAccessMap(normalizedModels, modelMetadata, platform);

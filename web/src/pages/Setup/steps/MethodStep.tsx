@@ -178,9 +178,10 @@ export default function MethodStep() {
         const existingProviders = (otherPref.custom_providers as Array<{ name: string }>) ?? [];
         const existingModels = (otherPref.custom_models as Array<{ provider: string }>) ?? [];
         const isCustom = existingProviders.some(cp => cp.name === provider.provider);
-        if (isCustom) {
-          const remainingProviders = existingProviders.filter(cp => cp.name !== provider.provider);
-          const remainingModels = existingModels.filter(cm => cm.provider !== provider.provider);
+        const remainingProviders = isCustom ? existingProviders.filter(cp => cp.name !== provider.provider) : existingProviders;
+        const remainingModels = existingModels.filter(cm => cm.provider !== provider.provider);
+        // Clean up if any custom_providers or custom_models were removed
+        if (remainingProviders.length !== existingProviders.length || remainingModels.length !== existingModels.length) {
           await updatePreferences.mutateAsync({
             other_preference: {
               custom_providers: remainingProviders.length > 0 ? remainingProviders : null,

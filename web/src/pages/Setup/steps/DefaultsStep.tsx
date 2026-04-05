@@ -56,6 +56,7 @@ export default function DefaultsStep() {
   // In OSS mode, filter by configured providers.
   const normalizedModels = platform ? providerMap : accessFilteredModels;
 
+
   const modelAccessMap = useModelAccessMap(normalizedModels, metadata, platform);
 
   // System defaults from models response
