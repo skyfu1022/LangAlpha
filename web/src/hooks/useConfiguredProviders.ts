@@ -7,7 +7,7 @@ import { getCodexOAuthStatus, getClaudeOAuthStatus } from '@/pages/Dashboard/uti
 export interface ConfiguredProvider {
   provider: string;
   display_name: string;
-  access_type: 'api_key' | 'oauth' | 'coding_plan';
+  access_type: 'api_key' | 'oauth' | 'coding_plan' | 'local';
 }
 
 /**

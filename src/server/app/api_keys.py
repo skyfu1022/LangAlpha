@@ -23,9 +23,11 @@ from src.config.env import HOST_MODE, HOST_IP
 from src.server.utils.api import CurrentUserId
 from src.server.database.api_keys import (
     get_user_api_keys,
+    get_base_url_for_provider,
     set_byok_enabled,
     upsert_api_key,
     delete_api_key,
+    invalidate_byok_cache,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,6 +254,9 @@ async def update_api_keys(body: UpdateApiKeysRequest, user_id: CurrentUserId):
             from src.server.database.api_keys import update_base_url
             await update_base_url(user_id, provider, url)
 
+    # Invalidate cached BYOK status so the next chat picks up key changes
+    await invalidate_byok_cache(user_id)
+
     # Auto-complete personalization if keys were added
     from src.server.services.onboarding import maybe_complete_personalization
     await maybe_complete_personalization(user_id)
@@ -443,6 +448,40 @@ _SDK_TEST_DISPATCH: dict[str, tuple] = {
 }
 
 
+async def _check_ssrf(base_url: str) -> None:
+    """Block private/internal IPs in platform mode. No-op in OSS mode."""
+    if HOST_MODE != "platform" or not base_url:
+        return
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+    import asyncio
+
+    hostname = urlparse(base_url).hostname or ""
+    _BLOCKED_HOSTS = {"localhost", "metadata.google.internal", "metadata.goog", "instance-data"}
+
+    if hostname.rstrip(".").lower() in _BLOCKED_HOSTS or hostname.endswith(".internal"):
+        raise HTTPException(
+            status_code=400,
+            detail="Base URL cannot point to a private or internal address.",
+        )
+
+    try:
+        loop = asyncio.get_event_loop()
+        infos = await loop.run_in_executor(
+            None, socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
+        )
+        for family, _type, _proto, _canonname, sockaddr in infos:
+            addr = ipaddress.ip_address(sockaddr[0])
+            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Base URL cannot point to a private or internal address.",
+                )
+    except socket.gaierror:
+        pass  # DNS resolution failed — allow; the actual HTTP call will fail later
+
+
 @router.post("/api/v1/keys/test")
 async def test_api_key(body: TestApiKeyRequest, user_id: CurrentUserId):
     """
@@ -504,41 +543,7 @@ async def test_api_key(body: TestApiKeyRequest, user_id: CurrentUserId):
     test_fn, default_model = dispatch
     base_url = body.base_url or provider_info.get("base_url") if provider_info else body.base_url
 
-    # SSRF protection: block private/internal IPs when running hosted (auth enabled)
-    from src.config.settings import HOST_MODE
-    if HOST_MODE == "platform" and base_url:
-        from urllib.parse import urlparse
-        import ipaddress
-        import socket
-
-        hostname = urlparse(base_url).hostname or ""
-        _BLOCKED_HOSTS = {"localhost", "metadata.google.internal", "metadata.goog", "instance-data"}
-
-        if hostname.rstrip(".").lower() in _BLOCKED_HOSTS or hostname.endswith(".internal"):
-            raise HTTPException(
-                status_code=400,
-                detail="Base URL cannot point to a private or internal address.",
-            )
-
-        # Resolve hostname to IPs and check each resolved address.
-        # Note: TOCTOU gap exists between this resolve and httpx's connect —
-        # a short-TTL DNS record could rebind after this check. Mitigated by
-        # rate limiting (10s/user) and 5s request timeout.
-        try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            infos = await loop.run_in_executor(
-                None, socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM,
-            )
-            for family, _type, _proto, _canonname, sockaddr in infos:
-                addr = ipaddress.ip_address(sockaddr[0])
-                if addr.is_private or addr.is_loopback or addr.is_link_local:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Base URL cannot point to a private or internal address.",
-                    )
-        except socket.gaierror:
-            pass  # DNS resolution failed — allow; the actual HTTP call will fail later
+    await _check_ssrf(base_url)
 
     start = time.monotonic()
     try:
@@ -599,20 +604,18 @@ async def list_provider_models(provider: str, user_id: CurrentUserId):
         "{HOST_IP}", HOST_IP,
     )
 
-    # Try to read user's stored base_url/key override — non-fatal if DB unavailable
-    user_keys: dict | None = None
+    # Try to read user's stored base_url override — narrow query, no PGP decrypt
     try:
-        user_keys = await get_user_api_keys(user_id)
-    except Exception:
-        pass  # DB/encryption not available — use provider defaults
-
-    if user_keys:
-        override = (user_keys.get("base_urls") or {}).get(provider)
+        override = await get_base_url_for_provider(user_id, provider)
         if override:
             base_url = override.replace("{HOST_IP}", HOST_IP)
+    except Exception:
+        pass  # DB not available — use provider defaults
 
     if not base_url:
         raise HTTPException(status_code=400, detail="No base URL configured for provider")
+
+    await _check_ssrf(base_url)
 
     # All local providers (Ollama, LM Studio, vLLM) expose OpenAI-compatible
     # GET /v1/models. The base_url may or may not already include /v1.
@@ -623,12 +626,14 @@ async def list_provider_models(provider: str, user_id: CurrentUserId):
         url = f"{base}/v1/models"
 
     # Minimal auth — local providers generally don't require it
-    api_key = ""
-    if user_keys:
-        api_key = (user_keys.get("keys") or {}).get(provider) or ""
     headers: dict[str, str] = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        from src.server.database.api_keys import get_key_for_provider
+        api_key = await get_key_for_provider(user_id, provider)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    except Exception:
+        pass  # No key available — proceed without auth
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -650,7 +655,8 @@ async def list_provider_models(provider: str, user_id: CurrentUserId):
     except httpx.ConnectError:
         raise HTTPException(status_code=502, detail="Could not connect to provider — is it running?")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)[:200])
+        logger.error("list_provider_models failed for %s: %s", provider, e, exc_info=True)
+        raise HTTPException(status_code=502, detail="Internal error while querying provider")
 
 
 # ── Models Endpoint ──────────────────────────────────────────────────────
@@ -700,6 +706,9 @@ def _build_provider_catalog() -> list[dict]:
     for key, info in flat.items():
         if info.get("platform"):
             continue
+        # Local providers (Ollama, LM Studio, vLLM) are OSS-only
+        if info.get("access_type") == "local" and HOST_MODE == "platform":
+            continue
         parent_key = info.get("parent_provider")
         access_type = info.get("access_type", "api_key")
 
@@ -715,7 +724,6 @@ def _build_provider_catalog() -> list[dict]:
                 "base_url": (inf.get("base_url") or "").replace("{HOST_IP}", HOST_IP) or None,
                 "use_response_api": inf.get("use_response_api", False),
                 "dynamic_models": inf.get("dynamic_models", False),
-                "local_only": inf.get("local_only", False),
             }
             # Attach region variants if this is a root brand
             rv = region_variants_by_parent.get(k)
@@ -750,7 +758,7 @@ async def list_models():
 
     models = get_configured_llm_models()
     config = LLM.get_model_config()
-    llm_cfg = setup.agent_config.llm if setup.agent_config else None
+    llm_cfg = setup.agent_config.llm if setup.agent_config and setup.agent_config.llm else None
     return {
         "models": {
             provider: {

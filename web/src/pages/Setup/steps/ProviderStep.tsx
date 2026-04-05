@@ -7,7 +7,6 @@ import { useModels } from '@/hooks/useModels';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useConfiguredProviders } from '@/hooks/useConfiguredProviders';
 import type { AccessType, ProviderCatalogEntry } from '@/components/model/types';
-import { isPlatformMode } from '@/config/hostMode';
 import { useTranslation } from 'react-i18next';
 
 const CUSTOM_PROVIDER_KEY = '__custom__';
@@ -36,17 +35,10 @@ export default function ProviderStep() {
     return (raw.provider_catalog as ProviderCatalogEntry[] | undefined) ?? [];
   }, [modelsData]);
 
-  const isOSSMode = !isPlatformMode;
-
-  // Filter catalog by selected method, split cloud vs local
+  // Filter catalog by selected method
   const filteredProviders = useMemo(
-    () => catalog.filter((p) => p.access_type === method && !p.local_only),
+    () => catalog.filter((p) => p.access_type === method),
     [catalog, method],
-  );
-
-  const localProviders = useMemo(
-    () => isOSSMode ? catalog.filter((p) => p.access_type === method && p.local_only) : [],
-    [catalog, method, isOSSMode],
   );
 
   // User's existing custom providers (from preferences)
@@ -92,8 +84,7 @@ export default function ProviderStep() {
       return;
     }
 
-    const provider = filteredProviders.find((p) => p.provider === selected)
-      ?? localProviders.find((p) => p.provider === selected);
+    const provider = filteredProviders.find((p) => p.provider === selected);
     const providerState = {
       method,
       provider: selected,
@@ -114,7 +105,7 @@ export default function ProviderStep() {
     }
 
     navigate('/setup/connect', { state: providerState });
-  }, [selected, method, filteredProviders, localProviders, customProviderSet, configuredSet, navigate]);
+  }, [selected, method, filteredProviders, customProviderSet, configuredSet, navigate]);
 
   if (isLoading) {
     return (
@@ -141,6 +132,7 @@ export default function ProviderStep() {
           {method === 'oauth' && t('setup.providerSubtitleOAuth')}
           {method === 'coding_plan' && t('setup.providerSubtitleCodingPlan')}
           {method === 'api_key' && t('setup.providerSubtitleApiKey')}
+          {method === 'local' && t('setup.providerSubtitleLocal')}
         </p>
       </div>
 
@@ -181,35 +173,6 @@ export default function ProviderStep() {
             />
           ))}
         </div>
-      )}
-
-      {/* Local model providers (dev only) */}
-      {localProviders.length > 0 && method === 'api_key' && (
-        <>
-          <div className="flex items-center gap-2">
-            <div className="h-px flex-1" style={{ background: 'var(--color-border-default)' }} />
-            <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-              {t('setup.localModels')}
-            </span>
-            <div className="h-px flex-1" style={{ background: 'var(--color-border-default)' }} />
-          </div>
-          <div
-            role="radiogroup"
-            aria-label="Local model providers"
-            className="grid grid-cols-2 sm:grid-cols-3 gap-3"
-          >
-            {localProviders.map((p) => (
-              <ProviderCard
-                key={p.provider}
-                provider={p.provider}
-                displayName={p.display_name}
-                selected={selected === p.provider}
-                configured={configuredSet.has(p.provider)}
-                onSelect={setSelected}
-              />
-            ))}
-          </div>
-        </>
       )}
 
       {/* Custom provider option (api_key and coding_plan only) */}

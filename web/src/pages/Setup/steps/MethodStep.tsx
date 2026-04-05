@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Ticket, Link2, Code2, Key, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Ticket, Link2, Code2, Key, Monitor, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/api/client';
@@ -13,16 +13,19 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useUpdatePreferences } from '@/hooks/useUpdatePreferences';
 import { deleteUserApiKey, disconnectCodexOAuth, disconnectClaudeOAuth, getCurrentUser } from '@/pages/Dashboard/utils/api';
 import type { AccessType } from '@/components/model/types';
+import { isPlatformMode } from '@/config/hostMode';
 
 // ---------------------------------------------------------------------------
 // Method card data
 // ---------------------------------------------------------------------------
 
-const METHODS: Array<{
+const ALL_METHODS: Array<{
   id: AccessType;
   icon: typeof Link2;
   titleKey: string;
   descKey: string;
+  platformOnly?: boolean;
+  ossOnly?: boolean;
 }> = [
   {
     id: 'oauth',
@@ -42,7 +45,20 @@ const METHODS: Array<{
     titleKey: 'setup.methodApiKey',
     descKey: 'setup.methodApiKeyDesc',
   },
+  {
+    id: 'local',
+    icon: Monitor,
+    titleKey: 'setup.methodLocal',
+    descKey: 'setup.methodLocalDesc',
+    ossOnly: true,
+  },
 ];
+
+const METHODS = ALL_METHODS.filter((m) => {
+  if (m.ossOnly && isPlatformMode) return false;
+  if (m.platformOnly && !isPlatformMode) return false;
+  return true;
+});
 
 // ---------------------------------------------------------------------------
 // Configured providers banner
@@ -115,7 +131,9 @@ function ConfiguredBanner({
                     border: p.access_type === 'oauth' ? 'none' : '1px solid var(--color-border-default)',
                   }}
                 >
-                  {p.access_type === 'oauth' ? t('setup.oauthBadge') : t('setup.apiKeyBadge')}
+                  {p.access_type === 'oauth' ? t('setup.oauthBadge')
+                    : p.access_type === 'local' ? t('setup.localBadge')
+                    : t('setup.apiKeyBadge')}
                 </span>
               </div>
               <button
@@ -161,7 +179,7 @@ export default function MethodStep() {
 
   const handleRemoveProvider = useCallback(async (provider: ConfiguredProvider) => {
     try {
-      if (provider.type === 'oauth') {
+      if (provider.access_type === 'oauth') {
         if (provider.provider === 'codex-oauth') {
           await disconnectCodexOAuth();
           queryClient.invalidateQueries({ queryKey: queryKeys.oauth.codex() });

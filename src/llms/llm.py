@@ -394,15 +394,20 @@ class LLM:
         return client
 
     def _resolve_api_key(self) -> str:
-        """Resolve API key: BYOK override > env var > local fallback."""
-        if self.api_key_override:
+        """Resolve API key: BYOK override > env var > local fallback.
+
+        Empty-string overrides are accepted for local providers (LM Studio,
+        Ollama, vLLM, etc.) where no real key is required.
+        """
+        if self.api_key_override is not None and self.api_key_override != "":
             return self.api_key_override
         if self.env_key:
             key = os.getenv(self.env_key)
-            if not key:
+            if key:
+                return key
+            if self.provider_info.get("access_type") != "local":
                 raise ValueError(f"{self.env_key} environment variable is not set")
-            return key
-        return "lm-studio" if self.provider == "lm-studio" else "EMPTY"
+        return "EMPTY"
 
     def _resolve_base_url(self, param_name: str = "base_url") -> dict:
         """Resolve base URL with HOST_IP substitution. Returns dict to merge into params."""
@@ -517,22 +522,13 @@ class LLM:
 
         is_oauth = self.provider_info.get("access_type") == "oauth"
 
-        # Set API key: prefer BYOK override, then env var
-        api_key = self.api_key_override or (os.getenv(self.env_key) if self.env_key else None)
-
         params = {
             "model": self.model,
-            "api_key": api_key,
-            "max_tokens": 64000,  # Default for Anthropic SDK models
+            "api_key": self._resolve_api_key(),
+            "max_tokens": 32000,  # Default for Anthropic SDK models
             "max_retries": 5,
             "timeout": 600.0,  # 10 minutes - sufficient for long reasoning
         }
-
-        if not params["api_key"]:
-            if self.provider_info.get("local_only"):
-                params["api_key"] = "EMPTY"
-            else:
-                raise ValueError(f"{self.env_key or 'ANTHROPIC_API_KEY'} environment variable is not set")
 
         # Set base URL from provider configuration if available
         if self.base_url:
@@ -547,8 +543,10 @@ class LLM:
         filtered_params = {k: v for k, v in self.parameters.items() if k != "enable_caching"}
         params.update(filtered_params)
 
+        # Pass extra_body via model_kwargs so ChatAnthropic's Pydantic validator
+        # doesn't warn about an unknown field (extra_body isn't a declared field).
         if self.extra_body:
-            params["extra_body"] = self.extra_body
+            params.setdefault("model_kwargs", {})["extra_body"] = self.extra_body
 
         # OAuth tokens (sk-ant-oat*) need Authorization: Bearer, not X-Api-Key.
         # ChatAnthropicOAuth redirects api_key → auth_token on the underlying SDK client.
@@ -560,17 +558,11 @@ class LLM:
         """Get Gemini LLM."""
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        # Set API key: prefer BYOK override, then env var
-        api_key = self.api_key_override or (os.getenv(self.env_key) if self.env_key else None)
-
         params = {
             "model": self.model,
-            "api_key": api_key,
+            "api_key": self._resolve_api_key(),
             "timeout": 600.0,  # 10 minutes - sufficient for long reasoning
         }
-
-        if not params["api_key"]:
-            raise ValueError(f"{self.env_key or 'GEMINI_API_KEY'} environment variable is not set")
 
         # Set base URL from provider configuration if available
         if self.base_url:
@@ -579,8 +571,9 @@ class LLM:
         # Add all parameters from llm_config
         params.update(self.parameters)
 
+        # Pass extra_body via model_kwargs to avoid Pydantic unknown-field warning.
         if self.extra_body:
-            params["extra_body"] = self.extra_body
+            params.setdefault("model_kwargs", {})["extra_body"] = self.extra_body
 
         return ChatGoogleGenerativeAI(**params)
 
