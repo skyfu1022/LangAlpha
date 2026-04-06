@@ -567,6 +567,31 @@ function parseWebSearchResults(proc: ToolCallProcessRecord, t: TFunction): WebSe
   };
 }
 
+/** Favicon with monogram fallback on error (matches InlineWebSearchCard behavior). */
+function FaviconWithFallback({ src, domain }: { src: string; domain: string }): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <span
+        className="inline-flex items-center justify-center text-[8px] font-semibold"
+        style={{
+          width: 14, height: 14, borderRadius: 2, flexShrink: 0,
+          backgroundColor: 'var(--color-bg-hover)', color: 'var(--color-text-tertiary)',
+        }}
+      >
+        {(domain || '?')[0].toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src} alt="" width={14} height={14}
+      style={{ borderRadius: 2, flexShrink: 0 }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 // --- WebSearchCards ---
 
 interface WebSearchCardsProps {
@@ -630,14 +655,12 @@ function WebSearchCards({ data }: WebSearchCardsProps): React.ReactElement {
           {/* Domain + external link icon */}
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5 min-w-0">
-              <img
-                src={item.favicon || `https://www.google.com/s2/favicons?domain=${encodeURIComponent(item.domain)}&sz=32`}
-                alt=""
-                width={14}
-                height={14}
-                style={{ borderRadius: 2, flexShrink: 0 }}
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-              />
+              {(item.favicon || item.domain) && (
+                <FaviconWithFallback
+                  src={item.favicon || (item.domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(item.domain)}&sz=32` : '')}
+                  domain={item.domain}
+                />
+              )}
               <span
                 className="text-xs truncate"
                 style={{ color: 'var(--color-text-tertiary)' }}

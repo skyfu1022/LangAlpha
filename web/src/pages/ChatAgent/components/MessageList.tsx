@@ -1199,11 +1199,10 @@ const MessageContentSegments = memo(function MessageContentSegments({ segments, 
         {renderBlocks.map((block, blockIdx) => {
           if (block.type === 'activity') {
             if (compactToolCalls) {
-              // Show all items in compact mode (not just completed)
-              const items = (block as ActivityRenderBlock).items;
+              const completedItems = (block as ActivityRenderBlock).items.filter(i => i._liveState === 'completed');
               return (
                 <div key={block.key}>
-                  {items.map((item) => {
+                  {completedItems.map((item) => {
                     if (item.type === 'tool_call') {
                       return (
                         <ToolCallMessageContent
@@ -1224,8 +1223,8 @@ const MessageContentSegments = memo(function MessageContentSegments({ segments, 
                         <ReasoningMessageContent
                           key={`reasoning-${item.id}`}
                           reasoningContent={(item.content as string) || ''}
-                          isReasoning={item._liveState === 'active'}
-                          reasoningComplete={(item.reasoningComplete as boolean) || item._liveState === 'completed'}
+                          isReasoning={false}
+                          reasoningComplete={(item.reasoningComplete as boolean) || false}
                           reasoningTitle={(item.reasoningTitle as string) ?? undefined}
                         />
                       );
