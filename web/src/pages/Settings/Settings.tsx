@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, User, LogOut, Trash2, HelpCircle, MessageSquareText, Sun, Moon, Monitor, Link2, Unlink, ExternalLink, Shield, ClipboardCopy, Plus, Pencil, Search, Pin, Settings2 } from 'lucide-react';
+import { User, LogOut, Trash2, MessageSquareText, Sun, Moon, Monitor, Link2, Unlink, ExternalLink, Shield, ClipboardCopy, Search, Pin, Settings2 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { updateCurrentUser, clearPreferences, uploadAvatar, getUserApiKeys, updateUserApiKeys, deleteUserApiKey, initiateCodexDevice, pollCodexDevice, getCodexOAuthStatus, disconnectCodexOAuth, initiateClaudeOAuth, submitClaudeCallback, getClaudeOAuthStatus, disconnectClaudeOAuth } from '@/pages/Dashboard/utils/api';
+import { updateCurrentUser, clearPreferences, uploadAvatar, getUserApiKeys, updateUserApiKeys, initiateCodexDevice, pollCodexDevice, getCodexOAuthStatus, disconnectCodexOAuth, initiateClaudeOAuth, submitClaudeCallback, getClaudeOAuthStatus, disconnectClaudeOAuth } from '@/pages/Dashboard/utils/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUser } from '@/hooks/useUser';
 import { usePreferences } from '@/hooks/usePreferences';
@@ -17,7 +17,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { getFlashWorkspace } from '@/pages/ChatAgent/utils/api';
 import ConfirmDialog from '@/pages/Dashboard/components/ConfirmDialog';
 import { ModelTierConfig } from '@/components/model/ModelTierConfig';
-import type { ByokProvider, CustomModelEntry, CustomModelFormState, AddProviderFormState } from '@/components/model/types';
+import type { ByokProvider, CustomModelEntry } from '@/components/model/types';
 import { useAllModels } from '@/hooks/useAllModels';
 import './Settings.css';
 
@@ -83,17 +83,9 @@ function Settings() {
   const [preferredModel, setPreferredModel] = useState('');
   const [preferredFlashModel, setPreferredFlashModel] = useState('');
   const [starredModels, setStarredModels] = useState<string[]>([]);
-  const [byokEnabled, setByokEnabled] = useState(false);
   const [byokProviders, setByokProviders] = useState<ByokProvider[]>([]);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [baseUrlInputs, setBaseUrlInputs] = useState<Record<string, string>>({});
-  const [selectedByokProvider, setSelectedByokProvider] = useState('');
-  const [_deletingProvider, setDeletingProvider] = useState<string | null>(null);
-
-  // Custom (sub-)providers state
-  const [showAddProviderForm, setShowAddProviderForm] = useState(false);
-  const [addProviderForm, setAddProviderForm] = useState<AddProviderFormState>({ name: '', parent_provider: '' });
-  const [addProviderError, setAddProviderError] = useState<string | null>(null);
   const [modelTabError, setModelTabError] = useState<string | null>(null);
   const [modelSaveSuccess, setModelSaveSuccess] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -107,10 +99,6 @@ function Settings() {
 
   // Custom Models state
   const [customModels, setCustomModels] = useState<CustomModelEntry[]>([]);
-  const [showCustomModelForm, setShowCustomModelForm] = useState(false);
-  const [editingCustomModelIdx, setEditingCustomModelIdx] = useState<number | null>(null);
-  const [customModelForm, setCustomModelForm] = useState<CustomModelFormState>({ name: '', model_id: '', provider: '', parameters: '', extra_body: '' });
-  const [customModelError, setCustomModelError] = useState<string | null>(null);
 
   // Connected Accounts (Codex OAuth — Device Code Flow)
   const [codexOAuthStatus, setCodexOAuthStatus] = useState<OAuthStatus>({ connected: false });
@@ -257,7 +245,6 @@ function Settings() {
         getCodexOAuthStatus(),
         getClaudeOAuthStatus(),
       ]) as [Record<string, unknown>, OAuthStatus, OAuthStatus];
-      setByokEnabled(!!keysRes?.byok_enabled);
       setByokProviders((keysRes?.providers as ByokProvider[]) || []);
       const initialBaseUrls: Record<string, string> = {};
       ((keysRes?.providers as ByokProvider[]) || []).forEach(p => {
@@ -299,15 +286,18 @@ function Settings() {
       const cleanCustomProviders = customProvidersList.filter(cp => activeProviderKeys.has(cp.name as string));
       const cleanCustomModels = customModels.filter(cm => activeProviderKeys.has(cm.provider) || validModelNames.has(cm.name));
 
+      // Clear subsidiary model fields if they reference models no longer valid
+      const cleanModelRef = (val: string) => validModelNames.has(val) ? val : null;
+
       await updatePrefsMutation.mutateAsync({
         other_preference: {
-          preferred_model: preferredModel || null,
-          preferred_flash_model: preferredFlashModel || null,
+          preferred_model: preferredModel ? cleanModelRef(preferredModel) : null,
+          preferred_flash_model: preferredFlashModel ? cleanModelRef(preferredFlashModel) : null,
           starred_models: cleanStarred.length > 0 ? cleanStarred : null,
           custom_models: cleanCustomModels.length > 0 ? cleanCustomModels : null,
           custom_providers: cleanCustomProviders.length > 0 ? cleanCustomProviders : null,
-          summarization_model: summarizationModel || null,
-          fetch_model: fetchModel || null,
+          summarization_model: summarizationModel ? cleanModelRef(summarizationModel) : null,
+          fetch_model: fetchModel ? cleanModelRef(fetchModel) : null,
           fallback_models: cleanFallback,
         },
       });
@@ -342,73 +332,6 @@ function Settings() {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleByokToggle = async () => {
-    setModelTabError(null);
-    const newValue = !byokEnabled;
-    try {
-      const result = await updateUserApiKeys({ byok_enabled: newValue }) as Record<string, unknown>;
-      setByokEnabled(!!result.byok_enabled);
-      setByokProviders(result.providers as ByokProvider[]);
-      queryClient.invalidateQueries({ queryKey: queryKeys.user.apiKeys() });
-    } catch {
-      setModelTabError(t('settings.failedToToggleByok'));
-    }
-  };
-
-  const handleDeleteProviderKey = async (provider: string) => {
-    setDeletingProvider(provider);
-    setModelTabError(null);
-    try {
-      const result = await deleteUserApiKey(provider) as Record<string, unknown>;
-      setByokProviders(result.providers as ByokProvider[]);
-      queryClient.invalidateQueries({ queryKey: queryKeys.user.apiKeys() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.platform.models() });
-    } catch {
-      setModelTabError(t('settings.failedToDeleteKey', { provider }));
-    } finally {
-      setDeletingProvider(null);
-    }
-  };
-
-  const PROVIDER_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/;
-
-  const handleAddProviderSave = () => {
-    const name = addProviderForm.name.trim();
-    const parent = addProviderForm.parent_provider;
-    const apiKey = (addProviderForm.api_key || '').trim();
-    const baseUrl = (addProviderForm.base_url || '').trim();
-    if (!name) { setAddProviderError(t('settings.providerNameRequired')); return; }
-    if (!PROVIDER_NAME_RE.test(name)) { setAddProviderError(t('settings.providerNameInvalid')); return; }
-    if (byokProviders.some(p => p.provider === name)) { setAddProviderError(t('settings.providerNameDuplicate')); return; }
-    if (!parent) { setAddProviderError(t('settings.parentProviderRequired')); return; }
-    // Add to providers list (will be persisted on Save)
-    setByokProviders(prev => [...prev, {
-      provider: name,
-      display_name: name,
-      parent_provider: parent,
-      has_key: false,
-      masked_key: null,
-      base_url: baseUrl || null,
-      is_custom: true,
-      use_response_api: addProviderForm.use_response_api || false,
-    }]);
-    // Seed key/url inputs so they get saved with the main Save button
-    if (apiKey) setKeyInputs(prev => ({ ...prev, [name]: apiKey }));
-    if (baseUrl) setBaseUrlInputs(prev => ({ ...prev, [name]: baseUrl }));
-    setSelectedByokProvider(name);
-    setShowAddProviderForm(false);
-    setAddProviderForm({ name: '', parent_provider: '', api_key: '', base_url: '', use_response_api: false });
-    setAddProviderError(null);
-  };
-
-  const _handleDeleteCustomProvider = (providerName: string) => {
-    setByokProviders(prev => prev.filter(p => p.provider !== providerName));
-    // Also clean up any pending key/url inputs
-    setKeyInputs(prev => { const next = { ...prev }; delete next[providerName]; return next; });
-    setBaseUrlInputs(prev => { const next = { ...prev }; delete next[providerName]; return next; });
-    if (selectedByokProvider === providerName) setSelectedByokProvider('');
   };
 
   const handleCodexConnectClick = () => {
@@ -468,99 +391,6 @@ function Settings() {
     setIsPollingCodex(false);
     setCodexDeviceCode(null);
     setCodexDeviceError(null);
-  };
-
-  // Custom Models helpers
-  const CUSTOM_MODEL_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
-
-  const validateCustomModelForm = (form: CustomModelFormState, existingModels: CustomModelEntry[], editIdx: number | null): string | null => {
-    if (!form.name?.trim()) return t('settings.customModelNameRequired');
-    if (!CUSTOM_MODEL_NAME_RE.test(form.name.trim())) return t('settings.customModelNameInvalid');
-    if (!form.model_id?.trim()) return t('settings.customModelIdRequired');
-    if (!form.provider?.trim()) return t('settings.customModelProviderRequired');
-    // Check collision with system models
-    if (validModelNames.has(form.name.trim())) return t('settings.customModelNameConflict');
-    // Check duplicate in custom models
-    const dup = existingModels.findIndex((cm, i) => i !== editIdx && cm.name === form.name.trim());
-    if (dup >= 0) return t('settings.customModelNameDuplicate');
-    // Check that the selected provider has a BYOK key configured
-    const providerName = form.provider.trim();
-    const prov = byokProviders.find(p => p.provider === providerName);
-    if (!prov || !prov.has_key) return t('settings.customModelProviderNoKey', { provider: providerName });
-    // Validate JSON fields
-    for (const field of ['parameters', 'extra_body'] as const) {
-      const val = form[field]?.trim();
-      if (val) {
-        try { JSON.parse(val); } catch { return `${field}: ${t('settings.customModelInvalidJson')}`; }
-      }
-    }
-    return null;
-  };
-
-  const handleCustomModelSave = () => {
-    const err = validateCustomModelForm(customModelForm, customModels, editingCustomModelIdx);
-    if (err) { setCustomModelError(err); return; }
-    const existing = editingCustomModelIdx != null ? customModels[editingCustomModelIdx] : undefined;
-    const entry: CustomModelEntry = {
-      ...(existing ?? {}),
-      name: customModelForm.name.trim(),
-      model_id: customModelForm.model_id.trim(),
-      provider: customModelForm.provider.trim(),
-    };
-    if (customModelForm.parameters?.trim()) entry.parameters = JSON.parse(customModelForm.parameters.trim());
-    else delete entry.parameters;
-    if (customModelForm.extra_body?.trim()) entry.extra_body = JSON.parse(customModelForm.extra_body.trim());
-    else delete entry.extra_body;
-    setCustomModels(prev => {
-      const next = [...prev];
-      if (editingCustomModelIdx != null) next[editingCustomModelIdx] = entry;
-      else next.push(entry);
-      return next;
-    });
-    setShowCustomModelForm(false);
-    setEditingCustomModelIdx(null);
-    setCustomModelForm({ name: '', model_id: '', provider: '', parameters: '', extra_body: '' });
-    setCustomModelError(null);
-  };
-
-  const handleCustomModelEdit = (idx: number) => {
-    const cm = customModels[idx];
-    const isKnown = byokProviders.some(p => p.provider === cm.provider);
-    setCustomModelForm({
-      name: cm.name,
-      model_id: cm.model_id,
-      provider: cm.provider,
-      parameters: cm.parameters ? JSON.stringify(cm.parameters, null, 2) : '',
-      extra_body: cm.extra_body ? JSON.stringify(cm.extra_body, null, 2) : '',
-      _customProvider: !isKnown,
-    });
-    setEditingCustomModelIdx(idx);
-    setShowCustomModelForm(true);
-    setCustomModelError(null);
-  };
-
-  const handleCustomModelDelete = async (idx: number) => {
-    const updated = customModels.filter((_, i) => i !== idx);
-    setCustomModels(updated);
-    // Persist immediately
-    try {
-      await updatePrefsMutation.mutateAsync({
-        other_preference: {
-          custom_models: updated.length > 0 ? updated : null,
-        },
-      });
-    } catch {
-      // Revert on failure
-      setCustomModels(customModels);
-      setModelTabError('Failed to remove model.');
-    }
-  };
-
-  const handleCustomModelCancel = () => {
-    setShowCustomModelForm(false);
-    setEditingCustomModelIdx(null);
-    setCustomModelForm({ name: '', model_id: '', provider: '', parameters: '', extra_body: '' });
-    setCustomModelError(null);
   };
 
   const handleCodexDisconnect = async () => {

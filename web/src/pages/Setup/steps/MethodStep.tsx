@@ -14,6 +14,7 @@ import { useUpdatePreferences } from '@/hooks/useUpdatePreferences';
 import { deleteUserApiKey, disconnectCodexOAuth, disconnectClaudeOAuth, getCurrentUser } from '@/pages/Dashboard/utils/api';
 import type { AccessType } from '@/components/model/types';
 import { isPlatformMode } from '@/config/hostMode';
+import { useAllModels } from '@/hooks/useAllModels';
 
 // ---------------------------------------------------------------------------
 // Method card data
@@ -168,6 +169,7 @@ export default function MethodStep() {
   const canSkip = hasConfigured || (!userLoading && hasPlatformAccess);
   const { preferences } = usePreferences();
   const updatePreferences = useUpdatePreferences();
+  const { metadata } = useAllModels();
 
   const [selected, setSelected] = useState<AccessType | null>(null);
 
@@ -190,30 +192,49 @@ export default function MethodStep() {
       } else {
         // Remove API key
         await deleteUserApiKey(provider.provider).catch(() => {});
-        // Clean custom_providers and custom_models from preferences
+        // Clean custom_providers, custom_models, and any model preference
+        // fields that reference models from the removed provider.
         const prefs = preferences as Record<string, unknown> | null;
         const otherPref = (prefs?.other_preference ?? {}) as Record<string, unknown>;
         const existingProviders = (otherPref.custom_providers as Array<{ name: string }>) ?? [];
-        const existingModels = (otherPref.custom_models as Array<{ provider: string }>) ?? [];
+        const existingModels = (otherPref.custom_models as Array<{ provider: string; name: string }>) ?? [];
         const isCustom = existingProviders.some(cp => cp.name === provider.provider);
         const remainingProviders = isCustom ? existingProviders.filter(cp => cp.name !== provider.provider) : existingProviders;
         const remainingModels = existingModels.filter(cm => cm.provider !== provider.provider);
-        // Clean up if any custom_providers or custom_models were removed
-        if (remainingProviders.length !== existingProviders.length || remainingModels.length !== existingModels.length) {
-          await updatePreferences.mutateAsync({
-            other_preference: {
-              custom_providers: remainingProviders.length > 0 ? remainingProviders : null,
-              custom_models: remainingModels.length > 0 ? remainingModels : null,
-            },
-          });
-        }
+        // Collect ALL model names belonging to this provider (custom + built-in)
+        const removedModelNames = new Set([
+          ...existingModels.filter(cm => cm.provider === provider.provider).map(cm => cm.name),
+          ...Object.entries(metadata)
+            .filter(([, meta]) => meta?.provider === provider.provider)
+            .map(([name]) => name),
+        ]);
+        const cleanModelPref = (val: unknown) =>
+          typeof val === 'string' && removedModelNames.has(val) ? null : undefined;
+        const prefUpdate: Record<string, unknown> = {
+          custom_providers: remainingProviders.length > 0 ? remainingProviders : null,
+          custom_models: remainingModels.length > 0 ? remainingModels : null,
+        };
+        // Clear subsidiary/preferred model fields if they reference a removed model
+        if (cleanModelPref(otherPref.summarization_model) === null) prefUpdate.summarization_model = null;
+        if (cleanModelPref(otherPref.fetch_model) === null) prefUpdate.fetch_model = null;
+        if (cleanModelPref(otherPref.preferred_model) === null) prefUpdate.preferred_model = null;
+        if (cleanModelPref(otherPref.preferred_flash_model) === null) prefUpdate.preferred_flash_model = null;
+        // Filter starred and fallback model lists
+        const starred = (otherPref.starred_models as string[]) ?? [];
+        const cleanStarred = starred.filter(m => !removedModelNames.has(m));
+        if (cleanStarred.length !== starred.length) prefUpdate.starred_models = cleanStarred.length > 0 ? cleanStarred : null;
+        const fallback = (otherPref.fallback_models as string[]) ?? [];
+        const cleanFallback = fallback.filter(m => !removedModelNames.has(m));
+        if (cleanFallback.length !== fallback.length) prefUpdate.fallback_models = cleanFallback.length > 0 ? cleanFallback : null;
+
+        await updatePreferences.mutateAsync({ other_preference: prefUpdate });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.user.me() });
       queryClient.invalidateQueries({ queryKey: queryKeys.user.apiKeys() });
     } catch {
       // Silently fail — user can retry
     }
-  }, [preferences, updatePreferences, queryClient]);
+  }, [preferences, updatePreferences, queryClient, metadata]);
 
   const handleNext = useCallback(() => {
     if (!selected) return;

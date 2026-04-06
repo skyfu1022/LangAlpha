@@ -22,7 +22,6 @@ from fastapi import File, UploadFile
 from pydantic import BaseModel
 from src.utils.storage import get_public_url, upload_bytes
 
-from src.config.settings import AUTH_SERVICE_URL
 from src.server.auth.jwt_bearer import get_current_auth_info, AuthInfo
 from src.server.database.user import (
     create_user as db_create_user,
@@ -48,6 +47,8 @@ from src.server.models.user import (
 from src.server.utils.api import CurrentUserId, handle_api_exceptions, raise_not_found
 
 logger = logging.getLogger(__name__)
+
+_VALID_MODALITIES = frozenset({"text", "image", "pdf"})
 
 router = APIRouter(prefix="/api/v1", tags=["Users"])
 
@@ -397,7 +398,6 @@ def _validate_custom_models(custom_models: list, custom_providers: list | None =
                 )
 
         # Validate input_modalities if present
-        _VALID_MODALITIES = {"text", "image", "pdf"}
         modalities = cm.get("input_modalities")
         if modalities is not None:
             if not isinstance(modalities, list) or len(modalities) == 0:
