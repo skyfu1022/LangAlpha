@@ -51,6 +51,7 @@ from ptc_agent.agent.middleware import (
     # Workspace context middleware
     WorkspaceContextMiddleware,
 )
+from ptc_agent.agent.middleware.runtime_context import RuntimeContextMiddleware
 from ptc_agent.agent.middleware.background_subagent.registry import (
     BackgroundTaskRegistry,
 )
@@ -167,19 +168,15 @@ class PTCAgent:
         self,
         tool_summary: str,
         subagent_summary: str,
-        user_profile: dict | None = None,
         plan_mode: bool = False,
-        current_time: str | None = None,
         thread_id: str | None = None,
     ) -> str:
-        """Build the system prompt for the agent.
+        """Build the static system prompt (excludes time/profile for cacheability).
 
         Args:
             tool_summary: Formatted MCP tool summary
             subagent_summary: Formatted subagent summary
-            user_profile: Optional user profile dict with name, timezone, locale
             plan_mode: If True, includes plan mode workflow instructions
-            current_time: Pre-formatted current time string for time awareness
             thread_id: Optional thread ID (first 8 chars) for thread-scoped directories
 
         Returns:
@@ -187,18 +184,15 @@ class PTCAgent:
         """
         loader = get_loader()
 
-        # Render the main system prompt with all variables
         return loader.get_system_prompt(
             tool_summary=tool_summary,
             subagent_summary=subagent_summary,
-            user_profile=user_profile,
             max_concurrent_task_units=DEFAULT_MAX_CONCURRENT_TASK_UNITS,
             max_task_iterations=DEFAULT_MAX_TASK_ITERATIONS,
             ask_user_enabled=True,
             plan_mode=plan_mode,
             include_examples=True,
             include_anti_patterns=True,
-            current_time=current_time,
             thread_id=thread_id or "",
             working_directory=self.config.filesystem.working_directory,
         )
@@ -535,9 +529,7 @@ class PTCAgent:
         system_prompt = self._build_system_prompt(
             tool_summary,
             subagent_summary,
-            user_profile,
             plan_mode=plan_mode,
-            current_time=current_time,
             thread_id=short_thread_id,
         )
 
@@ -609,7 +601,21 @@ class PTCAgent:
         if session is not None:
             workspace_context_middleware = [WorkspaceContextMiddleware(session=session)]
 
+        # Runtime context middleware (time + user profile — after cache breakpoint)
+        runtime_context_middleware: list[Any] = [
+            RuntimeContextMiddleware(
+                current_time=current_time,
+                user_profile=user_profile,
+            )
+        ]
+
         # Main agent middleware (includes SubAgentMiddleware + main_only)
+        # Ordering matters for prompt caching:
+        #   - AnthropicPromptCachingMiddleware places cache_control breakpoint on
+        #     the last system message block it sees (the static prompt + skills).
+        #   - WorkspaceContextMiddleware (agent.md) and RuntimeContextMiddleware
+        #     (time + profile) are innermost — they append AFTER the breakpoint,
+        #     so dynamic content doesn't invalidate the cached prefix.
         deepagent_middleware = [
             m
             for m in [
@@ -632,6 +638,7 @@ class PTCAgent:
                 EmptyToolCallRetryMiddleware(),
                 PatchToolCallsMiddleware(),
                 *workspace_context_middleware,
+                *runtime_context_middleware,
             ]
             if m is not None
         ]

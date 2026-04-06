@@ -21,6 +21,7 @@ from ptc_agent.agent.middleware import (
     SkillsMiddleware,
     AskUserMiddleware,
 )
+from ptc_agent.agent.middleware.runtime_context import RuntimeContextMiddleware
 from ptc_agent.agent.prompts import format_current_time, get_loader
 from ptc_agent.config import AgentConfig
 
@@ -139,25 +140,19 @@ class FlashAgent:
     def _build_system_prompt(
         self,
         tools: list[Any],
-        user_profile: dict | None = None,
-        current_time: str | None = None,
     ) -> str:
-        """Build minimal system prompt for Flash agent.
+        """Build the static system prompt (excludes time/profile for cacheability).
 
         Args:
             tools: List of available tools
-            user_profile: Optional user profile dict with name, timezone, locale
-            current_time: Pre-formatted current time string for time awareness
 
         Returns:
-            Minimal system prompt string
+            Rendered system prompt string
         """
         loader = get_loader()
         return loader.render(
             "flash_system.md.j2",
             tools=tools,
-            user_profile=user_profile,
-            current_time=current_time,
         )
 
     def create_agent(
@@ -192,10 +187,8 @@ class FlashAgent:
         # Build tools
         tools = self._build_tools()
 
-        # Build system prompt
-        system_prompt = self._build_system_prompt(
-            tools, user_profile=user_profile, current_time=current_time
-        )
+        # Build system prompt (time + profile injected by RuntimeContextMiddleware)
+        system_prompt = self._build_system_prompt(tools)
 
         # Minimal shared middleware stack
         shared_middleware: list[Any] = [
@@ -291,8 +284,16 @@ class FlashAgent:
             ]
         )
 
+        # Runtime context middleware (time + user profile — after cache breakpoint)
+        runtime_context_middleware = RuntimeContextMiddleware(
+            current_time=current_time,
+            user_profile=user_profile,
+        )
+
         # Build final middleware stack
-        middleware = [*shared_middleware, *main_middleware]
+        # RuntimeContextMiddleware is last (innermost) so it appends after
+        # the cache breakpoint, keeping the static prompt cacheable.
+        middleware = [*shared_middleware, *main_middleware, runtime_context_middleware]
 
         logger.info(
             "Creating Flash agent",

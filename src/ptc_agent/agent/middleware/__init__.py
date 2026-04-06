@@ -83,6 +83,11 @@ from .workspace_context import (
     WorkspaceContextMiddleware,
 )
 
+# Runtime context middleware (time + user profile, after cache breakpoint)
+from .runtime_context import (
+    RuntimeContextMiddleware,
+)
+
 # Subagent steering middleware
 from .background_subagent.steering import (
     SubagentSteeringMiddleware,
@@ -138,6 +143,8 @@ __all__ = [
     "SubagentSteeringMiddleware",
     # Workspace context
     "WorkspaceContextMiddleware",
+    # Runtime context
+    "RuntimeContextMiddleware",
     # Subagent middleware
     "CompiledSubAgent",
     "SubAgent",
