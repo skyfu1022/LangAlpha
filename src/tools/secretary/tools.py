@@ -30,14 +30,13 @@ logger = logging.getLogger(__name__)
 
 
 def _hitl_confirm(
-    action_type: str, payload: dict[str, Any], tool_call_id: str
+    action_type: str, payload: dict[str, Any]
 ) -> tuple[bool, dict]:
     """Pause the graph for user confirmation via interrupt().
 
     Args:
         action_type: The action type string (e.g. "create_workspace")
         payload: Additional data to include in the action request
-        tool_call_id: The tool call ID for the interrupt
 
     Returns:
         Tuple of (approved, response_dict)
@@ -177,7 +176,6 @@ async def _workspaces_create(
     approved, _ = _hitl_confirm(
         "create_workspace",
         {"workspace_name": name, "workspace_description": description or ""},
-        tool_call_id,
     )
 
     if not approved:
@@ -218,10 +216,16 @@ async def _workspaces_delete(
             "workspace_id is required for delete action", tool_call_id
         )
 
+    # Verify ownership
+    from src.server.database.workspace import get_workspace
+
+    ws = await get_workspace(workspace_id)
+    if not ws or str(ws.get("user_id")) != user_id:
+        return _error_command("workspace not found", tool_call_id)
+
     approved, _ = _hitl_confirm(
         "delete_workspace",
         {"workspace_id": workspace_id},
-        tool_call_id,
     )
 
     if not approved:
@@ -252,10 +256,16 @@ async def _workspaces_stop(
             "workspace_id is required for stop action", tool_call_id
         )
 
+    # Verify ownership
+    from src.server.database.workspace import get_workspace
+
+    ws = await get_workspace(workspace_id)
+    if not ws or str(ws.get("user_id")) != user_id:
+        return _error_command("workspace not found", tool_call_id)
+
     approved, _ = _hitl_confirm(
         "stop_workspace",
         {"workspace_id": workspace_id},
-        tool_call_id,
     )
 
     if not approved:
@@ -316,7 +326,6 @@ async def ptc_agent(
             "workspace_name": workspace_name,
             "question": question,
         },
-        tool_call_id,
     )
 
     if not approved:
@@ -344,15 +353,15 @@ async def ptc_agent(
     thread_id = str(uuid.uuid4())
 
     # Dispatch via internal HTTP call
-    self_base_url = os.environ.get("SELF_BASE_URL", "http://localhost:8000")
-    service_token = os.environ.get("INTERNAL_SERVICE_SECRET", "")
+    self_base_url = os.environ.get("GINLIXFLOW_BASE_URL", "http://localhost:8000")
+    service_token = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self_base_url}/api/v1/threads/{thread_id}/messages",
                 json={
-                    "content": question,
+                    "messages": [{"role": "user", "content": question}],
                     "agent_mode": "ptc",
                     "workspace_id": workspace_id,
                 },
@@ -565,7 +574,6 @@ async def _threads_delete(
     approved, _ = _hitl_confirm(
         "delete_thread",
         {"thread_id": thread_id},
-        tool_call_id,
     )
 
     if not approved:
