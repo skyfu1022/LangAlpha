@@ -204,7 +204,7 @@ async def _workspaces_create(
         )
     except Exception as e:
         logger.error(f"Failed to create workspace: {e}")
-        return _error_command(str(e), tool_call_id)
+        return _error_command("failed to create workspace", tool_call_id)
 
 
 async def _workspaces_delete(
@@ -244,7 +244,7 @@ async def _workspaces_delete(
         )
     except Exception as e:
         logger.error(f"Failed to delete workspace: {e}")
-        return _error_command(str(e), tool_call_id)
+        return _error_command("failed to delete workspace", tool_call_id)
 
 
 async def _workspaces_stop(
@@ -284,7 +284,7 @@ async def _workspaces_stop(
         )
     except Exception as e:
         logger.error(f"Failed to stop workspace: {e}")
-        return _error_command(str(e), tool_call_id)
+        return _error_command("failed to stop workspace", tool_call_id)
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +347,7 @@ async def ptc_agent(
             workspace_id = str(workspace["workspace_id"])
         except Exception as e:
             logger.error(f"Failed to create workspace for PTC dispatch: {e}")
-            return _error_command(f"workspace_creation_failed: {e}", tool_call_id)
+            return _error_command("workspace_creation_failed", tool_call_id)
     else:
         # Verify user owns the target workspace
         from src.server.database.workspace import get_workspace
@@ -438,14 +438,14 @@ async def agent_output(
             )
     except Exception as e:
         logger.error(f"Failed to verify thread ownership: {e}")
-        return _error_command(f"ownership_check_failed: {e}", tool_call_id)
+        return _error_command("thread not found", tool_call_id)
 
     # Extract text
     try:
         result = await extract_text_from_thread(thread_id)
     except Exception as e:
         logger.error(f"Failed to extract text from thread {thread_id}: {e}")
-        return _error_command(str(e), tool_call_id)
+        return _error_command("failed to retrieve thread output", tool_call_id)
 
     return _success_command(result, tool_call_id)
 
@@ -552,13 +552,13 @@ async def _threads_get_output(
             )
     except Exception as e:
         logger.error(f"Failed to verify thread ownership: {e}")
-        return _error_command(f"ownership_check_failed: {e}", tool_call_id)
+        return _error_command("thread not found", tool_call_id)
 
     try:
         result = await extract_text_from_thread(thread_id)
     except Exception as e:
         logger.error(f"Failed to get thread output: {e}")
-        return _error_command(str(e), tool_call_id)
+        return _error_command("failed to retrieve thread output", tool_call_id)
 
     return _success_command(result, tool_call_id)
 
@@ -583,7 +583,7 @@ async def _threads_delete(
             )
     except Exception as e:
         logger.error(f"Failed to verify thread ownership: {e}")
-        return _error_command(f"ownership_check_failed: {e}", tool_call_id)
+        return _error_command("thread not found", tool_call_id)
 
     approved, _ = _hitl_confirm(
         "delete_thread",
@@ -605,4 +605,4 @@ async def _threads_delete(
         )
     except Exception as e:
         logger.error(f"Failed to delete thread: {e}")
-        return _error_command(str(e), tool_call_id)
+        return _error_command("failed to delete thread", tool_call_id)

@@ -149,7 +149,7 @@ async def _extract_from_db(thread_id: str) -> str:
     from src.server.database.conversation import get_responses_for_thread
 
     try:
-        responses, _ = await get_responses_for_thread(thread_id)
+        responses, _ = await get_responses_for_thread(thread_id, limit=10)
     except Exception as e:
         logger.error(f"Failed to read DB responses for thread {thread_id}: {e}")
         return ""
