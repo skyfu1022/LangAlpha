@@ -146,7 +146,8 @@ async def _workspaces_list(user_id: str, tool_call_id: str) -> Command:
             user_id=user_id, limit=20
         )
         content = json.dumps(
-            {"success": True, "workspaces": workspaces, "total": total}
+            {"success": True, "workspaces": workspaces, "total": total},
+            default=str,
         )
     except Exception as e:
         logger.error(f"Failed to list workspaces: {e}")
