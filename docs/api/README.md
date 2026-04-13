@@ -7,16 +7,7 @@ Version: 0.1.0
 
 The PTC Agent API provides endpoints for interacting with the PTC (Plan-Think-Code) AI agent system. The agent executes code in isolated Daytona sandboxes and supports real-time streaming responses via Server-Sent Events (SSE).
 
-## Documentation Formats
-
-This API is documented in two formats:
-
-| Format | Location | Use Case |
-|--------|----------|----------|
-| **Bruno OpenCollection** | `./` (YAML files) | Interactive API testing with [Bruno](https://www.usebruno.com/) |
-| **Markdown** | `./markdown/` | Human-readable reference documentation |
-
-### Bruno Collection
+## Bruno Collection
 
 Open this folder (`docs/api/`) directly in Bruno to test API endpoints interactively.
 
@@ -25,19 +16,30 @@ Open this folder (`docs/api/`) directly in Bruno to test API endpoints interacti
 docs/api/
 ├── opencollection.yml           # Collection root
 ├── environments/
-│   ├── development.yml          # Local development (localhost:8000)
-│   └── production.yml           # Production environment
+│   └── development.yml          # Local development (localhost:8000)
 ├── 00-health/                   # Health check
-├── 10-chat/                     # Chat streaming (SSE)
-├── 20-workflow/                 # Workflow control
-├── 30-workspaces/               # Workspace CRUD
-├── 35-workspace-files/          # File operations
-├── 40-conversations/            # Conversation history
-├── 50-users/                    # User management
+├── 15-threads/                  # Thread CRUD, messages, SSE streaming, workflow control
+├── 30-workspaces/               # Workspace CRUD & lifecycle
+├── 35-workspace-files/          # Sandbox file operations
+├── 37-workspace-sandbox/        # Sandbox stats, packages, previews
+├── 38-vault/                    # Workspace secrets management
+├── 39-sessions/                 # Active session stats
+├── 50-users/                    # User management & auth sync
+├── 52-api-keys/                 # BYOK API key management & model listing
 ├── 55-portfolio/                # Portfolio holdings
+├── 58-oauth/                    # OAuth flows (Codex device code, Claude PKCE)
 ├── 60-watchlist/                # Watchlist CRUD
-├── 70-market-data/              # Market data endpoints
-└── 80-cache/                    # Cache management
+├── 65-automations/              # Scheduled automation CRUD & execution
+├── 70-market-data/              # Market data (intraday, daily, snapshots, search)
+├── 72-news/                     # News feed & articles
+├── 74-calendar/                 # Economic & earnings calendar
+├── 76-infoflow/                 # InfoFlow content feed
+├── 78-insights/                 # AI market insights
+├── 79-sec-proxy/                # SEC EDGAR document proxy
+├── 80-cache/                    # Cache management
+├── 85-public/                   # Public shared thread access
+├── 87-skills/                   # Agent skills listing
+└── 90-websocket/                # Real-time market data WebSocket
 ```
 
 **Getting Started with Bruno:**
@@ -45,316 +47,134 @@ docs/api/
 2. Open this folder as a collection
 3. Select "development" environment
 4. Create a workspace via `30-workspaces/create-workspace.yml`
-5. Test chat via `10-chat/stream-chat.yml`
-
-### Markdown Documentation
-
-Detailed endpoint documentation with examples:
-
-| Document | Description |
-|----------|-------------|
-| [Chat API](./markdown/chat.md) | Streaming chat, SSE events, reconnection |
-| [Workflow API](./markdown/workflow.md) | Workflow state, checkpoints, cancellation |
-| [Workspaces API](./markdown/workspaces.md) | Workspace CRUD, file operations |
-| [Conversations API](./markdown/conversations.md) | History, replay, messages |
-| [Market Data API](./markdown/market-data.md) | Intraday data, stock search |
-| [Cache API](./markdown/cache.md) | Cache stats and management |
-| [Data Models](./markdown/models.md) | Request/response schemas |
+5. Send a message via `15-threads/create-thread-message.yml`
 
 ---
 
 ## Quick Start: Complete API Flow
 
-This section demonstrates the typical workflow for using the PTC Agent API.
-
 ### Step 1: Create a Workspace
-
-Create a workspace with a dedicated Daytona sandbox. This provides an isolated environment for code execution.
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/workspaces" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: user-123" \
-  -d '{
-    "name": "My Project",
-    "description": "Development workspace for my project"
-  }'
+  -d '{"name": "My Project"}'
 ```
 
-**Response:**
+### Step 2: Start a Chat
 
-```json
-{
-  "workspace_id": "ws-abc123-def456",
-  "user_id": "user-123",
-  "name": "My Project",
-  "description": "Development workspace for my project",
-  "sandbox_id": "sandbox-xyz789",
-  "status": "running",
-  "created_at": "2025-01-15T10:30:00Z",
-  "updated_at": "2025-01-15T10:30:00Z"
-}
-```
-
-### Step 2: Start a Chat Session
-
-Use the workspace to run agent tasks via the streaming chat endpoint. The agent will execute code in the workspace's sandbox.
+Create a new thread and send the first message (SSE stream):
 
 ```bash
-curl -N -X POST "http://localhost:8000/api/v1/chat/stream" \
+curl -N -X POST "http://localhost:8000/api/v1/threads/messages" \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "user-123",
-    "workspace_id": "ws-abc123-def456",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Create a Python script that prints Hello World"
-      }
-    ]
+    "workspace_id": "ws-abc123",
+    "messages": [{"role": "user", "content": "Create a Python script that prints Hello World"}]
   }'
 ```
 
-**SSE Response Stream:**
+The response includes a `thread_id` in SSE events for follow-up messages.
 
-```
-event: message_chunk
-data: {"content": "I'll create a simple Python script", "agent": "assistant"}
-
-event: tool_calls
-data: {"tool_name": "write_file", "arguments": {"path": "/workspace/hello.py", "content": "print('Hello World')"}, "tool_call_id": "call_001"}
-
-event: artifact
-data: {"artifact_type": "file_operation", "artifact_id": "call_001", "agent": "ptc", "status": "completed", "payload": {"operation": "write_file", "file_path": "/workspace/hello.py", "line_count": 1}}
-
-event: tool_call_result
-data: {"tool_name": "write_file", "result": "File created successfully", "tool_call_id": "call_001"}
-
-event: done
-data: {"status": "completed", "thread_id": "thread-xyz"}
-```
-
-**Note:** The response includes a `thread_id` which you'll need to reconnect if disconnected.
-
-### Step 3: Reconnect if Disconnected
-
-If your connection drops, you can reconnect to a running or completed workflow using the thread ID:
+### Step 3: Continue the Conversation
 
 ```bash
-curl -N "http://localhost:8000/api/v1/chat/stream/thread-xyz/reconnect"
-```
-
-To avoid duplicate events, pass the last event ID you received:
-
-```bash
-curl -N "http://localhost:8000/api/v1/chat/stream/thread-xyz/reconnect?last_event_id=42"
-```
-
-The reconnect endpoint will:
-1. Replay buffered events you may have missed
-2. Continue streaming live events if the workflow is still running
-
-### Step 4: Check Workflow Status (Optional)
-
-Check the status of a workflow at any time:
-
-```bash
-curl "http://localhost:8000/api/v1/workflow/thread-xyz/status"
-```
-
-**Response:**
-
-```json
-{
-  "thread_id": "thread-xyz",
-  "status": "completed",
-  "workspace_id": "ws-abc123-def456",
-  "sandbox_id": "sandbox-xyz789",
-  "started_at": "2025-01-15T10:30:00Z",
-  "completed_at": "2025-01-15T10:30:45Z"
-}
-```
-
-### Step 5: Continue the Conversation
-
-Send follow-up messages using the same `workspace_id`:
-
-```bash
-curl -N -X POST "http://localhost:8000/api/v1/chat/stream" \
+curl -N -X POST "http://localhost:8000/api/v1/threads/THREAD_ID/messages" \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "user-123",
-    "workspace_id": "ws-abc123-def456",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Now run the script and show me the output"
-      }
-    ]
+    "workspace_id": "ws-abc123",
+    "messages": [{"role": "user", "content": "Now run the script"}]
   }'
 ```
 
-### Complete Flow Diagram
+### Step 4: Reconnect if Disconnected
 
+```bash
+curl -N "http://localhost:8000/api/v1/threads/THREAD_ID/messages/stream?last_event_id=42"
 ```
-┌─────────────────┐      ┌──────────────────┐     ┌─────────────────┐
-│  Create         │      │  Chat Stream     │     │  Reconnect      │
-│  Workspace      │────▶ │ (with workspace) │────▶│  (if needed)    │
-│ POST /workspaces│      │ POST /chat/stream│     │  GET /reconnect │
-└─────────────────┘      └──────────────────┘     └─────────────────┘
-                               │
-                               ▼
-                        ┌──────────────────┐
-                        │  Continue Chat   │
-                        │  (same workspace)│
-                        │ POST /chat/stream│
-                        └──────────────────┘
+
+### Step 5: Check Status
+
+```bash
+curl "http://localhost:8000/api/v1/threads/THREAD_ID/status"
 ```
 
 ---
 
 ## Resuming a Historical Conversation
 
-To display and continue from a past conversation, follow this workflow:
-
-### Step 1: List User Conversations
-
-Fetch the user's conversation history to get available `thread_id` and `workspace_id` values:
+### Step 1: List Threads
 
 ```bash
-curl "http://localhost:8000/api/v1/conversations?limit=50" \
+curl "http://localhost:8000/api/v1/threads?limit=50" \
   -H "X-User-Id: user-123"
 ```
 
-**Response:**
-
-```json
-{
-  "threads": [
-    {
-      "thread_id": "thread-abc123",
-      "workspace_id": "ws-xyz789",
-      "first_query_content": "Create a Python script...",
-      "current_status": "completed",
-      "updated_at": "2025-01-15T10:35:00Z"
-    }
-  ],
-  "total": 15,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-### Step 2: Replay the Conversation
-
-Use the replay endpoint to stream the full conversation history as SSE events:
+### Step 2: Replay
 
 ```bash
-curl -N "http://localhost:8000/api/v1/threads/thread-abc123/replay"
+curl -N "http://localhost:8000/api/v1/threads/THREAD_ID/messages/replay"
 ```
 
-This streams all messages, tool calls, and results exactly as they occurred, allowing the UI to reconstruct the conversation display.
-
-### Step 3: Continue the Conversation
-
-Once replay is complete, send new messages using the same `thread_id` and `workspace_id`:
+### Step 3: Continue
 
 ```bash
-curl -N -X POST "http://localhost:8000/api/v1/chat/stream" \
+curl -N -X POST "http://localhost:8000/api/v1/threads/THREAD_ID/messages" \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "user-123",
-    "workspace_id": "ws-xyz789",
-    "thread_id": "thread-abc123",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Now add error handling to that script"
-      }
-    ]
+    "workspace_id": "ws-abc123",
+    "messages": [{"role": "user", "content": "Continue from where we left off"}]
   }'
 ```
-
-The agent will have full context from the previous conversation and can continue the work.
-
-### Historical Conversation Flow Diagram
-
-```
-┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│  List Conversations │     │  Replay Thread      │     │  Continue Chat      │
-│  GET /conversations │────▶│  GET /threads/      │────▶│  POST /chat/stream  │
-│  (get thread_id,    │     │  {thread_id}/replay │     │  (same thread_id &  │
-│   workspace_id)     │     │  (display history)  │     │   workspace_id)     │
-└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
-```
-
-See [Conversations API](./markdown/conversations.md) for detailed endpoint documentation.
 
 ---
 
 ## Authentication
 
-Currently, user identification is handled via:
-- `user_id` field in request bodies (for chat endpoints)
-- `X-User-Id` header (for workspace endpoints)
+User identification is handled via:
+- Bearer JWT token (when Supabase auth is enabled)
+- `X-User-Id` header (for workspace/user endpoints)
 
 ## API Groups
 
 | Group | Description | Prefix |
 |-------|-------------|--------|
-| [Chat](./markdown/chat.md) | Streaming chat with SSE, workflow control | `/api/v1/chat` |
-| [Workflow](./markdown/workflow.md) | Workflow state, checkpoints, cancellation | `/api/v1/workflow` |
-| [Workspaces](./markdown/workspaces.md) | Workspace CRUD, thread listing, messages | `/api/v1/workspaces` |
-| [Conversations](./markdown/conversations.md) | Conversation history, replay, thread messages | `/api/v1/conversations`, `/api/v1/threads` |
-| [Market Data](./markdown/market-data.md) | FMP intraday data proxy with caching | `/api/v1/market-data` |
-| [Cache](./markdown/cache.md) | Cache statistics and management | `/api/v1/cache` |
-| [Health](./markdown/chat.md#health-check) | Health check | `/health` |
-
-## Common Response Formats
-
-### Success Response
-
-```json
-{
-  "status": "success",
-  "data": { ... }
-}
-```
-
-### Error Response
-
-```json
-{
-  "detail": "Error message describing what went wrong"
-}
-```
-
-### Paginated Response
-
-```json
-{
-  "items": [...],
-  "total": 100,
-  "limit": 20,
-  "offset": 0
-}
-```
+| Health | Service health check | `/health` |
+| Threads | Thread CRUD, SSE chat, workflow control, sharing, feedback | `/api/v1/threads` |
+| Workspaces | Workspace CRUD & lifecycle | `/api/v1/workspaces` |
+| Workspace Files | Sandbox file read/write/upload/download | `/api/v1/workspaces/{id}/files` |
+| Workspace Sandbox | Sandbox stats, packages, preview URLs | `/api/v1/workspaces/{id}/sandbox` |
+| Vault | Workspace secrets management | `/api/v1/workspaces/{id}/vault` |
+| Sessions | Active PTC session stats | `/api/v1/sessions` |
+| Users | User profile & preferences | `/api/v1/users` |
+| API Keys | BYOK key management & model listing | `/api/v1/users/me/api-keys` |
+| OAuth | Codex & Claude OAuth flows | `/api/v1/oauth` |
+| Portfolio | Portfolio holdings CRUD | `/api/v1/users/me/portfolio` |
+| Watchlist | Watchlist & items CRUD | `/api/v1/users/me/watchlists` |
+| Automations | Scheduled automation CRUD & execution | `/api/v1/automations` |
+| Market Data | Intraday, daily, snapshots, search, overview | `/api/v1/market-data` |
+| News | News feed & articles | `/api/v1/news` |
+| Calendar | Economic & earnings calendar | `/api/v1/calendar` |
+| InfoFlow | InfoFlow content feed | `/api/v1/infoflow` |
+| Insights | AI market insights | `/api/v1/insights` |
+| SEC Proxy | SEC EDGAR document proxy | `/api/v1/sec-proxy` |
+| Cache | Cache stats & management | `/api/v1/cache` |
+| Public | Shared thread access (no auth) | `/api/v1/public` |
+| Skills | Agent skills listing | `/api/v1/skills` |
+| WebSocket | Real-time market data streaming | `/ws/v1/market-data` |
 
 ## SSE Event Types
 
-The streaming endpoints emit Server-Sent Events. See [Chat API - SSE Events](./markdown/chat.md#sse-event-types) for the complete list of event types.
-
-## Data Models
-
-See [Models Reference](./markdown/models.md) for all request/response schemas including:
-- ChatRequest / StatusResponse
-- WorkspaceCreate / WorkspaceResponse
-- WorkspaceThreadListItem / ThreadMessagesResponse
-
-## Rate Limits
-
-No rate limits are currently enforced. This may change in production deployments.
+The streaming endpoints emit Server-Sent Events. Key event types:
+- `message_chunk` — text/reasoning streaming
+- `tool_calls` / `tool_call_result` — tool execution
+- `artifact` — file operations and outputs
+- `subagent_status` — background task status
+- `interrupt` — human-in-the-loop pause
+- `error` / `warning` / `keepalive` — control events
+- `done` — workflow completion
 
 ## Versioning
 
-All API endpoints are versioned with the `/api/v1/` prefix. Breaking changes will be introduced in new versions (e.g., `/api/v2/`).
+All API endpoints are versioned with the `/api/v1/` prefix.

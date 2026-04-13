@@ -18,3 +18,21 @@ variables:
     value: 14c76772-5adb-4115-b871-d7939186c2ab
   - name: symbol
     value: AAPL
+  - name: task_id
+    value: ""
+  - name: automation_id
+    value: ""
+  - name: share_token
+    value: ""
+  - name: secret_name
+    value: ""
+  - name: article_id
+    value: ""
+  - name: market_insight_id
+    value: ""
+  - name: index_number
+    value: ""
+  - name: provider
+    value: openai
+  - name: port
+    value: "8080"

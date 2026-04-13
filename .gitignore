@@ -84,6 +84,9 @@ WARP.md
 posts/
 
 docs/libs
+docs/superpowers/
+docs/api/
+docs/api/environments/production.yml
 .worktrees/
 .superpowers/
 .gstack/
