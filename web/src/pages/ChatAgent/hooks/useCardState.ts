@@ -100,7 +100,7 @@ export function useCardState(initialCards: CardsMap = {}): UseCardStateResult {
         // history data. This prevents clicking a resumed inline card from replacing
         // the live streaming messages with an old pre-resume snapshot.
         if (!isCurrentlyInactive && subagentDataUpdate.isHistory) {
-          if (process.env.NODE_ENV === 'development') {
+          if (import.meta.env.DEV) {
             console.log('[updateSubagentCard] Skipping history overwrite on active card:', {
               agentId,
               cardId,
@@ -116,7 +116,7 @@ export function useCardState(initialCards: CardsMap = {}): UseCardStateResult {
         // the tail loop's polling interval.
         const hasContentUpdate = subagentDataUpdate.messages !== undefined;
         if (isCurrentlyInactive && !isBeingReactivated && !hasContentUpdate) {
-          if (process.env.NODE_ENV === 'development') {
+          if (import.meta.env.DEV) {
             console.log('[updateSubagentCard] Skipping update to inactive card:', {
               agentId,
               cardId,
@@ -142,7 +142,7 @@ export function useCardState(initialCards: CardsMap = {}): UseCardStateResult {
           const existingStatus = existingSubagentData.status;
 
           if (newStatus !== undefined) {
-            if (process.env.NODE_ENV === 'development') {
+            if (import.meta.env.DEV) {
               console.log('[updateSubagentCard] Status update:', {
                 agentId,
                 newStatus,
@@ -154,7 +154,7 @@ export function useCardState(initialCards: CardsMap = {}): UseCardStateResult {
           }
 
           const preservedStatus = existingStatus || 'active';
-          if (process.env.NODE_ENV === 'development' && existingStatus === 'completed') {
+          if (import.meta.env.DEV && existingStatus === 'completed') {
             console.log('[updateSubagentCard] Preserving completed status:', {
               agentId,
               preservedStatus,
@@ -215,7 +215,7 @@ export function useCardState(initialCards: CardsMap = {}): UseCardStateResult {
         const isCompletedFromLiveStream = subagentDataUpdate.isActive === false && subagentDataUpdate.isHistory !== true && subagentDataUpdate.isReconnect !== true;
 
         if (isCompletedFromLiveStream) {
-          if (process.env.NODE_ENV === 'development') {
+          if (import.meta.env.DEV) {
             console.log('[updateSubagentCard] Skipping creation of new card for completed task from live streaming:', {
               agentId,
               cardId,
@@ -298,7 +298,7 @@ export function useCardState(initialCards: CardsMap = {}): UseCardStateResult {
               },
             };
             hasChanges = true;
-            if (process.env.NODE_ENV === 'development') {
+            if (import.meta.env.DEV) {
               console.log('[inactivateAllSubagents] Marking subagent as inactive:', {
                 taskId: card.subagentData!.taskId,
                 cardId,
