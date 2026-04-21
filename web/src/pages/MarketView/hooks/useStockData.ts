@@ -58,6 +58,7 @@ export function useStockData({
     setPreviousClose,
     setDayOpen
 }: UseStockDataOptions): UseStockDataReturn {
+    const isIndexSymbol = !!selectedStock?.startsWith('^');
     const [stockInfo, setStockInfo] = useState<StockInfo | null>(null);
     const [realTimePrice, setRealTimePrice] = useState<RealTimePrice | null>(null);
     const [snapshotData, setSnapshotData] = useState<SnapshotData | null>(null);
@@ -106,7 +107,7 @@ export function useStockData({
     const { data: overviewData = null, isLoading: overviewLoading } = useQuery({
         queryKey: ['companyOverview', selectedStock],
         queryFn: ({ signal }) => fetchCompanyOverview(selectedStock!, { signal }),
-        enabled: !!selectedStock,
+        enabled: !!selectedStock && !isIndexSymbol,
         staleTime: 5 * 60 * 1000, // 5 minutes fresh
     });
 
@@ -120,7 +121,7 @@ export function useStockData({
                 grades: (analyst.grades as AnalystOverlayData['grades']) || [],
             } : null;
         },
-        enabled: !!selectedStock,
+        enabled: !!selectedStock && !isIndexSymbol,
         staleTime: 5 * 60 * 1000, // 5 minutes fresh
     });
 

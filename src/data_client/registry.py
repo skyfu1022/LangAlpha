@@ -46,6 +46,10 @@ def _yfinance_available() -> bool:
         return False
 
 
+def _tushare_available() -> bool:
+    return bool(os.getenv("TUSHARE_API_KEY"))
+
+
 # ---------------------------------------------------------------------------
 # Async source constructors
 # ---------------------------------------------------------------------------
@@ -91,6 +95,14 @@ async def _build_yfinance_news_source() -> NewsDataSource:
     return YFinanceNewsSource()
 
 
+async def _build_tushare_source() -> MarketDataSource:
+    from .tushare import get_tushare_client
+    from .tushare.data_source import TuShareDataSource
+
+    client = await get_tushare_client()
+    return TuShareDataSource(client)
+
+
 # ---------------------------------------------------------------------------
 # Source registries — map config name → (availability_check, async_constructor)
 # ---------------------------------------------------------------------------
@@ -98,6 +110,7 @@ async def _build_yfinance_news_source() -> NewsDataSource:
 _SOURCE_REGISTRY: dict[str, tuple[Any, Any]] = {
     "ginlix-data": (_ginlix_data_available, _build_ginlix_data_source),
     "fmp": (_fmp_available, _build_fmp_source),
+    "tushare": (_tushare_available, _build_tushare_source),
     "yfinance": (_yfinance_available, _build_yfinance_source),
 }
 
@@ -234,23 +247,27 @@ async def get_financial_data_provider() -> FinancialDataProvider:
 
         financial: FinancialDataSource | None = None
         intel: MarketIntelSource | None = None
+        financial_sources: list[FinancialDataSource] = []
 
         if _fmp_available():
             from .fmp import get_fmp_client
             from .fmp.financial_source import FMPFinancialSource
 
             fmp_client = await get_fmp_client()
-            financial = FMPFinancialSource(fmp_client)
+            financial_sources.append(FMPFinancialSource(fmp_client))
             logger.debug(
                 "financial_data.source.registered | name=fmp (FinancialDataSource)"
             )
-        elif _yfinance_available():
+        if _yfinance_available():
             from .yfinance.financial_source import YFinanceFinancialSource
 
-            financial = YFinanceFinancialSource()
+            financial_sources.append(YFinanceFinancialSource())
             logger.debug(
                 "financial_data.source.registered | name=yfinance (FinancialDataSource)"
             )
+
+        if financial_sources:
+            financial = financial_sources[0] if len(financial_sources) == 1 else tuple(financial_sources)
 
         if _ginlix_data_available():
             from .ginlix_data import get_ginlix_data_client

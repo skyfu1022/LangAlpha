@@ -40,6 +40,21 @@ class TestFinancialDataProvider:
         provider = FinancialDataProvider(financial=None, intel=None)
         await provider.close()  # should not raise
 
+    @pytest.mark.asyncio
+    async def test_financial_falls_back_when_primary_raises(self):
+        primary = AsyncMock()
+        fallback = AsyncMock()
+        primary.get_company_profile.side_effect = Exception("fmp denied")
+        fallback.get_company_profile.return_value = [{"companyName": "Kweichow Moutai"}]
+
+        provider = FinancialDataProvider(financial=(primary, fallback))
+
+        result = await provider.financial.get_company_profile("600519.SH")
+
+        primary.get_company_profile.assert_awaited_once_with("600519.SH")
+        fallback.get_company_profile.assert_awaited_once_with("600519.SH")
+        assert result == [{"companyName": "Kweichow Moutai"}]
+
 
 # ---------------------------------------------------------------------------
 # FMPFinancialSource delegation
@@ -387,6 +402,30 @@ class TestGetFinancialDataProviderFactory:
             provider = await get_financial_data_provider()
 
         assert provider.financial is not None
+        MockYF.assert_called_once()
+        self._reset_singleton()
+
+    @pytest.mark.asyncio
+    async def test_fmp_and_yfinance_chain_when_both_available(self):
+        self._reset_singleton()
+        mock_fmp_client = AsyncMock()
+
+        with (
+            patch("src.data_client.registry._fmp_available", return_value=True),
+            patch("src.data_client.registry._yfinance_available", return_value=True),
+            patch("src.data_client.registry._ginlix_data_available", return_value=False),
+            patch("src.data_client.fmp.get_fmp_client", return_value=mock_fmp_client),
+            patch("src.data_client.fmp.financial_source.FMPFinancialSource") as MockFMP,
+            patch(
+                "src.data_client.yfinance.financial_source.YFinanceFinancialSource"
+            ) as MockYF,
+        ):
+            from src.data_client import get_financial_data_provider
+
+            provider = await get_financial_data_provider()
+
+        assert provider.financial is not None
+        MockFMP.assert_called_once_with(mock_fmp_client)
         MockYF.assert_called_once()
         self._reset_singleton()
 

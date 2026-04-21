@@ -45,6 +45,15 @@ router = APIRouter(
 )
 
 
+def _reject_index_symbol_for_stock_fundamentals(symbol: str) -> None:
+    """Reject explicit index symbols on stock-only fundamentals endpoints."""
+    if symbol.strip().upper().startswith("^"):
+        raise HTTPException(
+            status_code=422,
+            detail="Index symbols are not supported on stock fundamentals endpoints",
+        )
+
+
 def _convert_data_points(raw_data: list) -> list[IntradayDataPoint]:
     """Convert raw OHLCV data to IntradayDataPoint models."""
     return [
@@ -477,6 +486,7 @@ async def get_company_overview(symbol: str, user_id: CurrentUserId) -> CompanyOv
         raise HTTPException(status_code=422, detail="Symbol is required")
 
     symbol_upper = symbol.strip().upper()
+    _reject_index_symbol_for_stock_fundamentals(symbol_upper)
     try:
         from src.utils.cache.redis_cache import get_cache_client
 
@@ -534,6 +544,7 @@ async def get_analyst_data(
         raise HTTPException(status_code=422, detail="Symbol is required")
 
     symbol_upper = symbol.strip().upper()
+    _reject_index_symbol_for_stock_fundamentals(symbol_upper)
 
     try:
         import asyncio
