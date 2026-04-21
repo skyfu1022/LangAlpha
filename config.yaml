@@ -143,6 +143,8 @@ market_data:
   providers:
     - name: ginlix-data
       markets: [us]          # US equities only
+    - name: tushare
+      markets: [cn]          # TuShare — A-shares first priority (Shanghai & Shenzhen)
     - name: fmp
       markets: [all]         # FMP — global coverage, catch-all fallback
     - name: yfinance

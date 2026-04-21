@@ -7,10 +7,10 @@
 
 llm:
   # Model name from src/llms/manifest/models.json
-  name: "qwen3.5-plus"
-  flash: "qwen3.6-flash"
-  compaction: "qwen3.6-flash" # defaults to flash model
-  fetch: "qwen3.6-flash"         # defaults to flash model
+  name: "xunfei-astron-code"
+  flash: "xunfei-astron-code"
+  compaction: "xunfei-astron-code" # defaults to flash model
+  fetch: "xunfei-astron-code"         # defaults to flash model
   fallback:
     - "kimi-k2.5"
     - "minimax-m2.7"
@@ -118,7 +118,7 @@ mcp:
         TAVILY_API_KEY: "${TAVILY_API_KEY}"
 
     - name: "yf_price"
-      enabled: true
+      enabled: false
       description: "Yahoo Finance price history, dividends, and splits data"
       instruction: "Use for historical OHLCV price data, dividend history, stock splits, and multi-stock price comparisons. Returns large time series ideal for code-based analysis."
       tool_exposure_mode: "summary"
@@ -128,7 +128,7 @@ mcp:
       env: {}
 
     - name: "yf_fundamentals"
-      enabled: true
+      enabled: false
       description: "Yahoo Finance financial statements, earnings, company info, and valuations"
       instruction: "Use for income statements, balance sheets, cash flow, earnings data, company info, and valuation comparisons across multiple stocks. Returns structured financial data ideal for fundamental analysis."
       tool_exposure_mode: "summary"
@@ -138,7 +138,7 @@ mcp:
       env: {}
 
     - name: "yf_analysis"
-      enabled: true
+      enabled: false
       description: "Yahoo Finance analyst data, holdings, insiders, news, and ESG"
       instruction: "Use for analyst recommendations, price targets, upgrades/downgrades, earnings estimates, institutional/mutual fund holders, insider transactions, news, and ESG sustainability scores."
       tool_exposure_mode: "summary"
@@ -148,7 +148,7 @@ mcp:
       env: {}
 
     - name: "yf_market"
-      enabled: true
+      enabled: false
       description: "Yahoo Finance market status, search, screener, calendars, sectors"
       instruction: "Use for ticker search, stock screening (custom and predefined), earnings calendars, market status, and sector/industry analysis. Best for market-wide discovery and screening."
       tool_exposure_mode: "summary"
@@ -156,6 +156,17 @@ mcp:
       command: "uv"
       args: ["run", "python", "mcp_servers/yf_market_mcp_server.py"]
       env: {}
+
+    - name: "tushare"
+      enabled: true
+      description: "TuShare A-share price data (Shanghai & Shenzhen) — daily, intraday OHLCV"
+      instruction: "Use for A-share (China) stock data: daily OHLCV (get_a_share_daily), intraday bars (get_a_share_intraday), and basic stock info (get_a_share_basic). Supports symbols like 000001.SZ, 600000.SH."
+      tool_exposure_mode: "summary"
+      transport: "stdio"
+      command: "uv"
+      args: ["run", "python", "mcp_servers/tushare_price_mcp_server.py"]
+      env:
+        TUSHARE_API_KEY: "${TUSHARE_API_KEY}"
 
     # Scrapling web scraping MCP server
     # Provides get, bulk_get, fetch, bulk_fetch, stealthy_fetch, bulk_stealthy_fetch
@@ -206,7 +217,7 @@ storage:
   # Cloud storage provider for image/chart/file uploads and avator
   # All credentials and settings are loaded from .env file
   # Options: s3, r2, oss, none (to disable uploads)
-  provider: "s3"
+  provider: "none"
 
 logging:
   # Logging configuration

@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { searchStocks } from '@/lib/marketUtils';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { MarketSwitcher } from '@/components/ui/market-switcher';
+import type { MarketRegion } from '@/lib/marketConfig';
 import './DashboardHeader.css';
 
 interface StockResult {
@@ -16,9 +18,11 @@ interface StockResult {
 interface DashboardHeaderProps {
   onStockSearch?: (symbol: string, stock: StockResult | null) => void;
   onScrollToTop?: () => void;
+  market?: MarketRegion;
+  onSwitchMarket?: (market: MarketRegion) => void;
 }
 
-const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onStockSearch, onScrollToTop }) => {
+const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onStockSearch, onScrollToTop, market = 'us', onSwitchMarket }) => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const { t } = useTranslation();
@@ -227,6 +231,11 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ onStockSearch, onScro
 
         {/* Right actions */}
         <div className="flex items-center gap-3 ml-3 shrink-0">
+          {/* Market switcher */}
+          {onSwitchMarket && (
+            <MarketSwitcher market={market} onSwitch={onSwitchMarket} />
+          )}
+
           {/* Help — hidden on mobile to save space */}
           <div className="relative hidden sm:block" ref={helpRef}>
             <button

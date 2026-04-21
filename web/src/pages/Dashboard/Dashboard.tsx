@@ -5,6 +5,7 @@ import { MobileBottomSheet } from '../../components/ui/mobile-bottom-sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useMarket } from '@/hooks/useMarket';
 import DashboardHeader from './components/DashboardHeader';
 import ConfirmDialog from './components/ConfirmDialog';
 import IndexMovementCard from './components/IndexMovementCard';
@@ -34,6 +35,7 @@ interface DeleteConfirmState {
 function Dashboard() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const { market, switchMarket, config: marketConfig } = useMarket();
   const mainRef = useRef<HTMLElement>(null);
   const handleScrollToTop = useCallback(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -54,7 +56,7 @@ function Dashboard() {
     newsItems,
     newsLoading,
     marketStatus,
-  } = useDashboardData();
+  } = useDashboardData(market);
 
   const {
     showPersonalizationBanner,
@@ -106,7 +108,7 @@ function Dashboard() {
     <div className="dashboard-container min-h-screen">
       {/* Main content area */}
       <main ref={mainRef} className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden">
-        <DashboardHeader onScrollToTop={handleScrollToTop} />
+        <DashboardHeader onScrollToTop={handleScrollToTop} market={market} onSwitchMarket={switchMarket} />
 
         <div className="mx-auto max-w-[1920px] w-full p-3 sm:p-6 pb-32">
           {/* Market Overview heading + mobile watchlist tab */}

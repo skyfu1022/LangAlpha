@@ -273,6 +273,8 @@ header "Financial Data"
 printf "  ${BOLD}1${NC}) Yahoo Finance — free, no API key needed\n"
 printf "  ${BOLD}2${NC}) FMP (Financial Modeling Prep) — high-quality data (free tier available)\n"
 printf "  ${BOLD}3${NC}) Both — FMP + Yahoo Finance MCP servers\n"
+printf "  ${BOLD}4${NC}) TuShare — A-share data (Shanghai & Shenzhen, requires tushare.pro token)\n"
+printf "  ${BOLD}5${NC}) All — FMP + Yahoo Finance + TuShare\n"
 printf "\n"
 info "See README > Data Provider Fallback Chain for details."
 printf "\n"
@@ -282,6 +284,7 @@ case $data in
     1)
         for s in price_data fundamentals macro options; do toggle_mcp "$s" "false"; done
         for s in yf_price yf_fundamentals yf_analysis yf_market; do toggle_mcp "$s" "true"; done
+        toggle_mcp "tushare" "false"
         success "Yahoo Finance MCP servers enabled (free data, no API key)"
         ;;
     2)
@@ -289,6 +292,7 @@ case $data in
         [ -n "$key" ] && set_env "FMP_API_KEY" "$key"
         for s in price_data fundamentals macro options; do toggle_mcp "$s" "true"; done
         for s in yf_price yf_fundamentals yf_analysis yf_market; do toggle_mcp "$s" "false"; done
+        toggle_mcp "tushare" "false"
         success "FMP configured — full financial data MCP servers enabled"
         ;;
     3)
@@ -296,7 +300,26 @@ case $data in
         [ -n "$key" ] && set_env "FMP_API_KEY" "$key"
         for s in price_data fundamentals macro options; do toggle_mcp "$s" "true"; done
         for s in yf_price yf_fundamentals yf_analysis yf_market; do toggle_mcp "$s" "true"; done
+        toggle_mcp "tushare" "false"
         success "FMP + Yahoo Finance — all financial data MCP servers enabled"
+        ;;
+    4)
+        key=$(prompt_secret "TUSHARE_API_KEY")
+        [ -n "$key" ] && set_env "TUSHARE_API_KEY" "$key"
+        for s in price_data fundamentals macro options; do toggle_mcp "$s" "false"; done
+        for s in yf_price yf_fundamentals yf_analysis yf_market; do toggle_mcp "$s" "true"; done
+        toggle_mcp "tushare" "true"
+        success "TuShare configured — A-share data (Shanghai & Shenzhen) + Yahoo Finance"
+        ;;
+    5)
+        key=$(prompt_secret "FMP_API_KEY")
+        [ -n "$key" ] && set_env "FMP_API_KEY" "$key"
+        key=$(prompt_secret "TUSHARE_API_KEY")
+        [ -n "$key" ] && set_env "TUSHARE_API_KEY" "$key"
+        for s in price_data fundamentals macro options; do toggle_mcp "$s" "true"; done
+        for s in yf_price yf_fundamentals yf_analysis yf_market; do toggle_mcp "$s" "true"; done
+        toggle_mcp "tushare" "true"
+        success "FMP + Yahoo Finance + TuShare — all data sources enabled"
         ;;
     *)
         info "Skipping data config."

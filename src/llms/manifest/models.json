@@ -850,5 +850,17 @@
     "additional_betas": [
       "context-1m-2025-08-07"
     ]
+  },
+  "xunfei-astron-code": {
+    "model_id": "astron-code-latest",
+    "provider": "xunfei",
+    "display_name": "Astron Code (讯飞)",
+    "visible": true,
+    "input_modalities": [
+      "text"
+    ],
+    "parameters": {
+      "max_tokens": 32768
+    }
   }
 }

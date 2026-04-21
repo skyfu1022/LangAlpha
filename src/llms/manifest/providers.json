@@ -1078,6 +1078,16 @@
         }
       }
     ],
+    "xunfei": [
+      {
+        "id": "astron-code-latest",
+        "name": "Astron Code Latest",
+        "is_reasoning": true,
+        "description": "iFLYTEK's Astron Code model optimized for coding tasks",
+        "context_window": 131072,
+        "max_output": 32768
+      }
+    ],
     "cerebras": [
       {
         "id": "zai-glm-4.7",
@@ -1311,6 +1321,15 @@
       "access_type": "api_key",
       "use_response_api": false,
       "display_name": "Cerebras"
+    },
+    "xunfei": {
+      "sdk": "openai",
+      "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2",
+      "env_key": "XUNFEI_API_KEY",
+      "access_type": "api_key",
+      "byok_eligible": true,
+      "display_name": "讯飞星火 (iFLYTEK)",
+      "region": "cn"
     },
     "lm-studio": {
       "sdk": "openai",

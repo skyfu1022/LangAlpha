@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { getNews, getIndices, INDEX_SYMBOLS, fallbackIndex, normalizeIndexSymbol } from '../utils/api';
+import { getNews, getIndices, fallbackIndex, normalizeIndexSymbol, getIndexConfig } from '../utils/api';
 import { fetchMarketStatus } from '@/lib/marketUtils';
+import type { MarketRegion } from '@/lib/marketConfig';
 import type { IndexData } from '@/types/market';
 
 interface MarketStatusData {
@@ -53,7 +54,7 @@ function formatRelativeTime(timestamp: string | number | null | undefined): stri
  * Uses TanStack Query to manage fetching, caching, and auto-polling of data.
  * Eliminates race conditions and reduces boilerplate of manual useEffects.
  */
-export function useDashboardData(): DashboardData {
+export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
   // 1. Market Status (Polls every 60s, cached globally)
   const { data: marketStatus = null } = useQuery<MarketStatusData | null>({
     queryKey: ['dashboard', 'marketStatus'],
@@ -67,15 +68,17 @@ export function useDashboardData(): DashboardData {
   const isMarketOpen = marketStatus?.market === 'open' ||
     (marketStatus && !marketStatus.afterHours && !marketStatus.earlyHours && marketStatus.market !== 'closed');
 
+  const indexCfg = getIndexConfig(market);
+
   const { data: indices, isLoading: indicesLoading } = useQuery<IndexData[]>({
-    queryKey: ['dashboard', 'indices', INDEX_SYMBOLS],
+    queryKey: ['dashboard', 'indices', market, indexCfg.symbols],
     queryFn: async () => {
-      const { indices: next } = await getIndices(INDEX_SYMBOLS);
+      const { indices: next } = await getIndices(indexCfg.symbols);
       return next;
     },
-    // Using placeholderData provides standard fallback values instantly 
+    // Using placeholderData provides standard fallback values instantly
     // without populating the cache as "fresh", thereby triggering an immediate background fetch
-    placeholderData: (): IndexData[] => INDEX_SYMBOLS.map((s) => fallbackIndex(normalizeIndexSymbol(s))),
+    placeholderData: (): IndexData[] => indexCfg.symbols.map((s) => fallbackIndex(normalizeIndexSymbol(s))),
     refetchInterval: isMarketOpen ? 30000 : 60000,
     refetchIntervalInBackground: false,
     staleTime: 10000,

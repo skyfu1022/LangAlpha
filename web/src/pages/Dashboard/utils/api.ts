@@ -100,9 +100,20 @@ interface InfoFlowResponse {
 
 // --- Market data (see docs/ptc-agent-api/market data) ---
 
-/** Index symbols: normalized (GSPC, IXIC, DJI, RUT). Index.yml / Index Batch.yml use these. */
-const INDEX_SYMBOLS: string[] = ['GSPC', 'IXIC', 'DJI', 'RUT', 'VIX'];
-const INDEX_NAMES: Record<string, string> = { GSPC: 'S&P 500', IXIC: 'NASDAQ', DJI: 'Dow Jones', RUT: 'Russell 2000', VIX: 'VIX' };
+import { MARKET_CONFIG, type MarketRegion } from '@/lib/marketConfig';
+
+/** Build index symbols/names for the given market region. */
+function getIndexConfig(market: MarketRegion) {
+  const cfg = MARKET_CONFIG[market];
+  const symbols = cfg.indices.map((i) => i.symbol);
+  const names: Record<string, string> = {};
+  cfg.indices.forEach((i) => { names[i.symbol] = i.name; });
+  return { symbols, names };
+}
+
+/** Legacy defaults for US market (used when market is not specified). */
+const INDEX_SYMBOLS: string[] = MARKET_CONFIG.us.indices.map((i) => i.symbol);
+const INDEX_NAMES: Record<string, string> = Object.fromEntries(MARKET_CONFIG.us.indices.map((i) => [i.symbol, i.name]));
 
 function normalizeIndexSymbol(s: string): string {
   return String(s).replace(/^\^/, '').toUpperCase();
@@ -374,10 +385,10 @@ export async function getSnapshotStocks(symbols: string[]): Promise<SnapshotResp
 
 // --- Stock prices (batch, for watchlist) ---
 
-const DEFAULT_WATCHLIST_SYMBOLS: string[] = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'TSLA'];
-const DEFAULT_WATCHLIST_NAMES: Record<string, string> = { AAPL: 'Apple', MSFT: 'Microsoft', NVDA: 'NVIDIA', AMZN: 'Amazon', TSLA: 'Tesla' };
+const DEFAULT_WATCHLIST_SYMBOLS: string[] = MARKET_CONFIG.us.defaultWatchlist;
+const DEFAULT_WATCHLIST_NAMES: Record<string, string> = MARKET_CONFIG.us.defaultWatchlistNames;
 
-export { DEFAULT_WATCHLIST_SYMBOLS, DEFAULT_WATCHLIST_NAMES };
+export { DEFAULT_WATCHLIST_SYMBOLS, DEFAULT_WATCHLIST_NAMES, getIndexConfig };
 
 /**
  * Get company names for a list of stock symbols (FMP profile companyName).

@@ -22,6 +22,7 @@ import { MarketDataWSProvider, useMarketDataWSContext } from './contexts/MarketD
 
 import { loadPref, savePref } from './utils/prefs';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useMarket } from '@/hooks/useMarket';
 
 import { useStockData } from './hooks/useStockData';
 
@@ -100,8 +101,9 @@ function MarketViewInner() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
+  const { market, switchMarket, config: marketConfig } = useMarket();
   const { prices: wsPrices, connectionStatus: wsStatus, dataLevel: wsDataLevel, ginlixDataEnabled, subscribe: wsSubscribe, unsubscribe: wsUnsubscribe, setPreviousClose, setDayOpen } = useMarketDataWSContext();
-  const [selectedStock, setSelectedStock] = useState<string>(() => loadPref('symbol', 'GOOGL'));
+  const [selectedStock, setSelectedStock] = useState<string>(() => loadPref('symbol', marketConfig.defaultChartSymbol));
   const [selectedStockDisplay, setSelectedStockDisplay] = useState<DisplayOverride | null>(null);
 
   const {
@@ -425,7 +427,7 @@ function MarketViewInner() {
 
   return (
     <div className="market-center-container">
-      <DashboardHeader onStockSearch={handleStockSearch as any} />
+      <DashboardHeader onStockSearch={handleStockSearch as any} market={market} onSwitchMarket={switchMarket} />
       {isMobile ? (
         <div className="market-mobile-layout">
           <StockHeader
