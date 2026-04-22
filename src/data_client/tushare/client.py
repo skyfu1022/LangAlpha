@@ -79,6 +79,25 @@ class TuShareClient:
         items = payload.get("items", [])
         return [dict(zip(field_names, row)) for row in items]
 
+    async def get_disclosure_dates(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> list[dict[str, Any]]:
+        """查询财报披露日期。
+
+        Args:
+            start_date: 开始日期，格式 YYYYMMDD 或 YYYY-MM-DD
+            end_date: 结束日期，格式 YYYYMMDD 或 YYYY-MM-DD
+        """
+        s = start_date.replace("-", "")
+        e = end_date.replace("-", "")
+        return await self.query_dataframe(
+            api_name="disclosure_date",
+            params={"start_date": s, "end_date": e},
+            fields="ts_code,ann_date,end_date,report_type,actual_date",
+        )
+
     # ------------------------------------------------------------------
     # Convenience wrappers for common endpoints
     # ------------------------------------------------------------------
