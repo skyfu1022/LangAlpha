@@ -15,9 +15,11 @@ export interface IndexEntry {
 export interface MarketConfig {
   label: string;
   indices: IndexEntry[];
+  etfs: IndexEntry[];
   defaultWatchlist: string[];
   defaultWatchlistNames: Record<string, string>;
   defaultChartSymbol: string;
+  currencySymbol: string;
 }
 
 export const MARKET_CONFIG: Record<MarketRegion, MarketConfig> = {
@@ -39,6 +41,13 @@ export const MARKET_CONFIG: Record<MarketRegion, MarketConfig> = {
       TSLA: 'Tesla',
     },
     defaultChartSymbol: 'GOOGL',
+    etfs: [
+      { symbol: 'SPY', name: 'S&P 500 ETF' },
+      { symbol: 'QQQ', name: 'Nasdaq 100 ETF' },
+      { symbol: 'IWM', name: 'Russell 2000 ETF' },
+      { symbol: 'VTI', name: 'Total Stock Market ETF' },
+    ],
+    currencySymbol: '$',
   },
   cn: {
     label: 'CN',
@@ -57,5 +66,26 @@ export const MARKET_CONFIG: Record<MarketRegion, MarketConfig> = {
       '000001.SZ': '平安银行',
     },
     defaultChartSymbol: '600519.SH',
+    etfs: [
+      { symbol: '510300.SH', name: '沪深300ETF' },
+      { symbol: '510050.SH', name: '上证50ETF' },
+      { symbol: '159919.SZ', name: '沪深300ETF' },
+      { symbol: '510500.SH', name: '中证500ETF' },
+    ],
+    currencySymbol: '¥',
   },
 };
+
+/** 判断 symbol 所属市场（基于后缀约定） */
+export function getSymbolMarket(symbol: string): MarketRegion {
+  if (/\.(SH|SZ|SS)$/i.test(symbol)) return 'cn';
+  return 'us';
+}
+
+/** 按 market 过滤带 symbol 字段的数组 */
+export function filterByMarket<T extends { symbol: string }>(
+  items: T[],
+  market: MarketRegion,
+): T[] {
+  return items.filter(item => getSymbolMarket(item.symbol) === market);
+}
