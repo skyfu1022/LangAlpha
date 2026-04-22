@@ -12,6 +12,11 @@ vi.mock('../../utils/api', () => ({
     symbol: s, name: s, price: 0, change: 0, changePercent: 0, isPositive: true, sparklineData: [],
   })),
   normalizeIndexSymbol: vi.fn((s: string) => String(s).replace(/^\^/, '').toUpperCase()),
+  getIndexConfig: vi.fn(() => ({
+    symbols: ['GSPC', 'IXIC', 'DJI', 'RUT', 'VIX'],
+    names: { GSPC: 'S&P 500', IXIC: 'NASDAQ', DJI: 'Dow Jones', RUT: 'Russell 2000', VIX: 'VIX' },
+    types: { GSPC: 'index', IXIC: 'index', DJI: 'index', RUT: 'index', VIX: 'index' },
+  })),
 }));
 
 vi.mock('@/lib/marketUtils', () => ({
