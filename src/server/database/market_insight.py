@@ -154,6 +154,7 @@ async def get_market_insight(market_insight_id: str) -> Optional[dict]:
 
 async def get_todays_market_insights(
     user_id: Optional[str] = None,
+    market: str = "us",
 ) -> list[dict]:
     """Get all completed insights for today (America/New_York).
 
@@ -161,6 +162,7 @@ async def get_todays_market_insights(
     When user_id is provided, returns UNION ALL of system insights (user_id IS NULL)
     and user's personal insights, each hitting its own partial index.
     System insights fall back to yesterday if none today; user insights do not.
+    Filtered by market via COALESCE(metadata->>'market', 'us').
     """
     et = ZoneInfo("America/New_York")
     today = datetime.now(et).date()
@@ -173,7 +175,7 @@ async def get_todays_market_insights(
 
     async with get_db_connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
-            # Query 1: system insights (always)
+            # Query 1: system insights (always), filtered by market
             await cur.execute(
                 f"""
                 SELECT {CARD_COLUMNS}
@@ -181,9 +183,10 @@ async def get_todays_market_insights(
                 WHERE status = 'completed'
                   AND created_at >= %s AND created_at < %s
                   AND user_id IS NULL
+                  AND COALESCE(metadata->>'market', 'us') = %s
                 ORDER BY created_at DESC
                 """,
-                (day_start, day_end),
+                (day_start, day_end, market),
             )
             system_rows = [dict(r) for r in await cur.fetchall()]
 
@@ -199,16 +202,17 @@ async def get_todays_market_insights(
                     WHERE status = 'completed'
                       AND created_at >= %s AND created_at < %s
                       AND user_id IS NULL
+                      AND COALESCE(metadata->>'market', 'us') = %s
                     ORDER BY created_at DESC
                     LIMIT 1
                     """,
-                    (yesterday_start, day_start),
+                    (yesterday_start, day_start, market),
                 )
                 fallback = await cur.fetchone()
                 if fallback:
                     system_rows = [dict(fallback)]
 
-            # Query 2: user insights (only if user_id provided)
+            # Query 2: user insights (only if user_id provided), filtered by market
             user_rows: list[dict] = []
             if user_id is not None:
                 await cur.execute(
@@ -218,9 +222,10 @@ async def get_todays_market_insights(
                     WHERE status = 'completed'
                       AND created_at >= %s AND created_at < %s
                       AND user_id = %s
+                      AND COALESCE(metadata->>'market', 'us') = %s
                     ORDER BY created_at DESC
                     """,
-                    (day_start, day_end, user_id),
+                    (day_start, day_end, user_id, market),
                 )
                 user_rows = [dict(r) for r in await cur.fetchall()]
 

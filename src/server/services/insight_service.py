@@ -364,7 +364,7 @@ class InsightService:
     # Per-user on-demand generation
     # ------------------------------------------------------------------
 
-    async def generate_for_user(self, user_id: str) -> dict:
+    async def generate_for_user(self, user_id: str, market: str = "us") -> dict:
         """Request personalized insight generation for a user.
 
         Returns the DB row immediately (status='generating').
@@ -391,12 +391,20 @@ class InsightService:
             # Empty watchlist/portfolio — fall back to generic brief
             prompt = _build_instruction("market_update", now_et)
 
+        # Add market context to prompt
+        if market == "cn":
+            prompt += "\n\nFocus on the China A-share / mainland market context and use Chinese company naming where appropriate."
+
         # Atomic idempotency: try to insert, handle conflict from partial unique index
         row = await insight_db.create_market_insight_if_not_generating(
             model="flash",
             type="personalized",
             user_id=user_id,
-            metadata={"schema_version": 3, "has_context": bool(symbols_context)},
+            metadata={
+                "schema_version": 3,
+                "has_context": bool(symbols_context),
+                "market": market,
+            },
         )
         if row is None:
             # Another request already created a generating row
@@ -720,7 +728,7 @@ class InsightService:
         row = await insight_db.create_market_insight(
             model="flash",
             type=job_type,
-            metadata={"instruction": instruction, "schema_version": 3},
+            metadata={"instruction": instruction, "schema_version": 3, "market": "us"},
         )
         insight_id = row["market_insight_id"]
 
