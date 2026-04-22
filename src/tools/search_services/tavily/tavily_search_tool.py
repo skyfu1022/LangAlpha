@@ -1,6 +1,7 @@
 """Tavily search tool for LangChain integration."""
 
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
@@ -24,6 +25,10 @@ _exclude_domains: Optional[List[str]] = None
 _include_answer: bool = False
 _include_favicon: bool = True
 _country: Optional[str] = None
+
+
+def _is_tavily_available() -> bool:
+    return bool(os.environ.get("TAVILY_API_KEY"))
 
 
 def _get_api_wrapper() -> TavilySearchWrapper:
@@ -156,6 +161,17 @@ async def web_search(
             Takes priority over time_range.
         topic: Search topic - 'general' (default), 'news', or 'finance'
     """
+    if not _is_tavily_available():
+        logger.warning("Tavily search unavailable: TAVILY_API_KEY not configured")
+        return (
+            "Web search is temporarily unavailable because the Tavily API key is not configured.",
+            {
+                "error": "search_unavailable",
+                "provider": "tavily",
+                "query": query,
+            },
+        )
+
     try:
         # Validate date formats
         _validate_date_format(start_date)
@@ -221,7 +237,7 @@ async def web_search(
         return cleaned_results, filtered_artifact
 
     except Exception as e:
-        logger.error(f"Tavily search failed: {e}", exc_info=True)
+        logger.warning(f"Tavily search failed: {e}", exc_info=True)
         return repr(e), {"error": str(e), "query": query}
 
 

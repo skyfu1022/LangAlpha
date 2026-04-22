@@ -78,7 +78,11 @@ class TuShareDataSource:
         Accepts both ``000001.SZ`` and ``000001`` formats.
         """
         if "." in symbol:
-            return symbol
+            base, suffix = symbol.rsplit(".", 1)
+            suffix = suffix.upper()
+            if suffix == "SS":
+                suffix = "SH"
+            return f"{base}.{suffix}"
         # Infer exchange from leading digit
         if symbol.startswith(("6", "9")):
             return f"{symbol}.SH"

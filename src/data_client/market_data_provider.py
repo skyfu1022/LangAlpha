@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Symbol suffix → market region
 _SUFFIX_MAP: dict[str, str] = {
     "HK": "hk",
+    "SH": "cn",
     "SS": "cn",
     "SZ": "cn",
     "L": "uk",

@@ -57,6 +57,9 @@ class TestSymbolMarket:
     def test_shanghai_suffix(self):
         assert symbol_market("600519.SS") == "cn"
 
+    def test_shanghai_sh_suffix(self):
+        assert symbol_market("600519.SH") == "cn"
+
     def test_shenzhen_suffix(self):
         assert symbol_market("000001.SZ") == "cn"
 
