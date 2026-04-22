@@ -21,42 +21,42 @@
 
 ## 步骤 3：在 Sandbox 中执行评估
 
-使用以下代码模板进行批量评估。数据通过 TuShare MCP server 获取（sandbox 中通过生成的 MCP wrapper 函数调用），因子计算使用 phandas。
+使用以下代码模板进行批量评估。数据通过 MCP server 获取（sandbox 中通过生成的 MCP wrapper 函数调用），因子计算使用 phandas。
 
 ### 3.1 数据准备
 
 ```python
-import tushare as ts
 import pandas as pd
 import numpy as np
 from scipy import stats
 
-# 初始化 TuShare
-pro = ts.pro_api()
+# 通过 MCP wrapper 获取行情数据
+# MCP wrapper 函数已预先生成在 tools/ 目录下
+# 使用前先查看可用的数据工具：
+#   Glob("tools/docs/tushare/*.md") 或 Glob("tools/docs/market/*.md")
+# 然后导入对应的函数：
+#   from tools.tushare import get_stock_daily
 
-# 定义股票池：沪深 300 成分股（示例，可根据需要调整）
-# 获取最近交易日的沪深 300 成分股
-index_stocks = pro.index_weight(index_code='399300.SZ', start_date='20260101')
-stock_pool = index_stocks['con_code'].unique().tolist()
+# 示例：获取 A 股日线行情数据
+# 具体函数名和参数请参考 tools/docs/ 下的文档
+from tools.tushare import get_stock_daily
 
-# 如果 TuShare 积分不够获取指数成分，使用一组代表性股票
-if not stock_pool:
-    stock_pool = [
-        '600000.SH', '600036.SH', '601318.SH', '600519.SH', '601166.SH',
-        '000001.SZ', '000002.SZ', '000333.SZ', '000651.SZ', '000858.SZ',
-        '600276.SH', '601888.SH', '600030.SH', '601398.SH', '600887.SH',
-        '000568.SZ', '002415.SZ', '300059.SZ', '600809.SH', '601012.SH',
-    ]
-
-# 获取日期范围
+# 定义股票池和日期范围
 end_date = '20260421'
 start_date = '20250101'  # 至少一年数据
+
+stock_pool = [
+    '600000.SH', '600036.SH', '601318.SH', '600519.SH', '601166.SH',
+    '000001.SZ', '000002.SZ', '000333.SZ', '000651.SZ', '000858.SZ',
+    '600276.SH', '601888.SH', '600030.SH', '601398.SH', '600887.SH',
+    '000568.SZ', '002415.SZ', '300059.SZ', '600809.SH', '601012.SH',
+]
 
 # 批量获取日线行情
 all_data = []
 for ts_code in stock_pool:
     try:
-        df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        df = get_stock_daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
         if df is not None and len(df) > 0:
             all_data.append(df)
     except Exception:
@@ -308,11 +308,18 @@ def check_correlation(
 #         if abs(max_corr) < 0.5:
 #             # 可以调用 admit_factor 入库
 #             admit_factor(
-#                 expression=r['expression'],
+#                 name=f"F{len(existing_factors)+1:03d}_{r['expression'][:30]}",
+#                 formula=r['expression'],
+#                 category="momentum",
 #                 ic_mean=r['ic_mean'],
-#                 ic_std=r['ic_std'],
 #                 icir=r['icir'],
 #                 max_corr=max_corr,
+#                 evaluation_config={
+#                     "start_date": start_date,
+#                     "end_date": end_date,
+#                     "forward_return_days": 1,
+#                 },
+#                 parameters={},
 #             )
 ```
 

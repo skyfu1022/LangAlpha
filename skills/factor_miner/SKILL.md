@@ -33,24 +33,24 @@ FactorMiner 提供 4 个 host tool，由 SkillsMiddleware 按需加载：
 
 | 参数 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| `expression` | str | 是 | 因子表达式，如 `rank(ts_delta($close, 5))` |
-| `ic_mean` | float | 是 | 因子的 IC 均值 |
-| `ic_std` | float | 是 | 因子的 IC 标准差 |
-| `icir` | float | 是 | ICIR（IC 均值 / IC 标准差） |
-| `max_corr` | float | 是 | 与已有因子的最大截面相关性 |
-| `turnover` | float | 否 | 因子换手率（可选） |
-| `description` | str | 否 | 因子逻辑的简短文字说明 |
+| `name` | str | 是 | 因子名称（如 `"F001_momentum_5d"`） |
+| `formula` | str | 是 | 因子表达式（如 `rank(ts_delta($close, 5))`） |
+| `category` | str | 否 | 因子分类（如 `"momentum"`, `"volatility"`） |
+| `ic_mean` | float | 是 | IC 均值（绝对值） |
+| `icir` | float | 否 | ICIR 值 |
+| `max_corr` | float | 否 | 与已有因子的最大截面相关性 |
+| `evaluation_config` | dict | 是 | 评估配置（应至少包含 universe/symbols, start_date, end_date, forward_return_days 之一） |
+| `parameters` | dict | 否 | 因子参数字典；无参数时传 `{}` |
 
 入库条件：`|IC| >= 0.03` 且 `max_corr < 0.5`
 
 ### 3.2 `list_factors`
 
-列出因子库中已入库的因子。
+列出因子库中已入库的因子。无参数，返回全部因子，按 `created_at` 升序排列。
 
 | 参数 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| `limit` | int | 否 | 返回条数上限，默认 50 |
-| `sort_by` | str | 否 | 排序字段，可选 `ic_mean`、`icir`、`created_at`，默认 `icir` |
+| 无 | - | - | 返回当前工作区全部已入库因子 |
 
 ### 3.3 `get_factor_memory`
 
@@ -66,10 +66,16 @@ FactorMiner 提供 4 个 host tool，由 SkillsMiddleware 按需加载：
 
 | 参数 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| `recommended` | list[str] | 是 | 推荐的因子构建方向 |
-| `forbidden` | list[str] | 是 | 应避免的因子构建方向 |
-| `insights` | list[str] | 是 | 从本轮挖掘中提炼的洞察 |
-| `recent_logs` | list[str] | 是 | 本轮挖掘的简要日志 |
+| `memory_patch` | dict | 是 | 要合并的记忆内容，可包含以下字段 |
+
+`memory_patch` 内部结构：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `recommended` | list[dict] | 推荐模式列表，每条含 `pattern`, `description`, `example_formula` |
+| `forbidden` | list[dict] | 禁止方向列表，每条含 `direction`, `description`, `correlated_with` |
+| `insights` | list[str] | 洞察字符串列表 |
+| `recent_logs` | list[dict] | 日志列表，每条含 `batch`, `candidates`, `passed_ic`, `passed_corr`, `admitted` |
 
 ## 4. 算子库文档
 
@@ -263,20 +269,20 @@ Experience Memory 是 FactorMiner 自我进化的核心数据结构，通过 `ge
 ```json
 {
   "recommended": [
-    "量价背离类因子在短期窗口表现较好",
-    "截面排名后的时序运算稳定性高"
+    {"pattern": "量价背离", "description": "量价背离类因子在短期窗口表现较好", "example_formula": "ts_corr(rank($close), rank($volume), 10)"},
+    {"pattern": "rank_ts", "description": "截面排名后的时序运算稳定性高", "example_formula": "rank(ts_mean($returns, 10))"}
   ],
   "forbidden": [
-    "纯价格动量因子与已有因子高度相关",
-    "超过 60 日窗口的均值因子 IC 不显著"
+    {"direction": "纯价格动量", "description": "纯价格动量因子与已有因子高度相关", "correlated_with": "rank(ts_delta($close, 5))"},
+    {"direction": "长窗口均值", "description": "超过 60 日窗口的均值因子 IC 不显著", "correlated_with": ""}
   ],
   "insights": [
     "小市值股票因子 IC 波动较大，需注意样本偏差",
     "成交量相关因子在市场异动期表现不稳定"
   ],
   "recent_logs": [
-    "[2026-04-21] 第 3 轮：生成 20 个候选，通过 3 个，最高 ICIR=1.2",
-    "[2026-04-21] 第 2 轮：生成 15 个候选，通过 1 个，相关性过滤掉 5 个"
+    {"batch": 3, "candidates": 20, "passed_ic": 8, "passed_corr": 3, "admitted": 3},
+    {"batch": 2, "candidates": 15, "passed_ic": 5, "passed_corr": 1, "admitted": 1}
   ]
 }
 ```
@@ -285,17 +291,18 @@ Experience Memory 是 FactorMiner 自我进化的核心数据结构，通过 `ge
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `recommended` | list[str] | 推荐的因子构建方向，来源于成功入库的因子特征 |
-| `forbidden` | list[str] | 应避免的因子构建方向，来源于系统性失败的模式 |
-| `insights` | list[str] | 从挖掘过程中提炼的通用洞察 |
-| `recent_logs` | list[str] | 最近几轮挖掘的简要日志，保留最近 10 条 |
+| `recommended` | list[dict] | 推荐模式列表，每条含 `pattern`(模式名)、`description`(说明)、`example_formula`(示例表达式)，上限 10 条 |
+| `forbidden` | list[dict] | 禁止方向列表，每条含 `direction`(方向名)、`description`(说明)、`correlated_with`(关联因子)，上限 15 条 |
+| `insights` | list[str] | 从挖掘过程中提炼的通用洞察，上限 15 条 |
+| `recent_logs` | list[dict] | 最近几轮挖掘日志，每条含 `batch`/`candidates`/`passed_ic`/`passed_corr`/`admitted`，上限 20 条 |
 
 ### 9.3 更新规则
 
 - 每轮挖掘结束后调用 `update_factor_memory`
-- `recommended` 和 `forbidden` 总量各不超过 20 条，超出时淘汰最早的条目
-- `recent_logs` 只保留最近 10 条
-- `insights` 总量不超过 15 条，通过去重和合并保持精简
+- `recommended` 总量不超过 10 条，超出时淘汰最早的条目
+- `forbidden` 总量不超过 15 条，超出时淘汰最早的条目
+- `insights` 总量不超过 15 条，超出时淘汰最早的条目
+- `recent_logs` 只保留最近 20 条
 
 ## 10. 挖掘策略
 

@@ -35,11 +35,11 @@ def _get_workspace_id(config: RunnableConfig) -> str:
 async def admit_factor(
     name: str,
     formula: str,
-    category: str | None,
     ic_mean: float,
-    icir: float | None,
-    max_corr: float | None,
     evaluation_config: dict,
+    category: str | None = None,
+    icir: float | None = None,
+    max_corr: float | None = None,
     parameters: dict | None = None,
     config: RunnableConfig = None,
 ) -> Tuple[str, Dict[str, Any]]:
@@ -48,11 +48,11 @@ async def admit_factor(
     Args:
         name: 因子名称（如 "F001_momentum_5d"）
         formula: 因子表达式（如 "rank(ts_delta($close, 5))"）
-        category: 因子分类（如 "momentum", "volatility"）
         ic_mean: IC 均值（绝对值）
+        evaluation_config: 评估配置（应至少包含以下之一：universe, symbols, start_date, end_date, forward_return_days）
+        category: 因子分类（如 "momentum", "volatility"）
         icir: ICIR 值
         max_corr: 与已有因子的最大相关性
-        evaluation_config: 评估配置（必须包含 universe/symbols, start_date, end_date, forward_return_days）
         parameters: 可选参数
     """
     workspace_id = _get_workspace_id(config)

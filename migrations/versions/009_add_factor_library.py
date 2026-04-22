@@ -20,7 +20,7 @@ def upgrade() -> None:
     op.execute("""
         CREATE TABLE factor_library (
             id SERIAL PRIMARY KEY,
-            workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+            workspace_id UUID NOT NULL REFERENCES workspaces(workspace_id) ON DELETE CASCADE,
             name TEXT NOT NULL,
             formula TEXT NOT NULL,
             category TEXT,
@@ -29,7 +29,6 @@ def upgrade() -> None:
             max_corr DOUBLE PRECISION,
             evaluation_config JSONB NOT NULL DEFAULT '{}',
             parameters JSONB NOT NULL DEFAULT '{}',
-            admitted_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW(),
             created_at TIMESTAMPTZ DEFAULT NOW()
         );

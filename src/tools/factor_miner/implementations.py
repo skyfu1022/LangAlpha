@@ -34,6 +34,7 @@ DEFAULT_MEMORY: dict[str, Any] = {
 
 _RECOMMENDED_MAX = 10
 _FORBIDDEN_MAX = 15
+_INSIGHTS_MAX = 15
 _RECENT_LOGS_MAX = 20
 
 _MEMORY_TTL = 7 * 86400  # 7 days
@@ -117,7 +118,7 @@ async def admit_factor_impl(
                     evaluation_config, parameters,
                     created_at, updated_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT ON CONSTRAINT idx_factor_library_workspace_formula
+                ON CONFLICT (workspace_id, formula)
                 DO UPDATE SET
                     name         = EXCLUDED.name,
                     category     = EXCLUDED.category,
@@ -246,10 +247,11 @@ async def update_factor_memory_impl(
                 existing_directions.add(item.get("direction"))
         current["forbidden"] = current["forbidden"][-_FORBIDDEN_MAX:]
 
-    # --- Merge insights (append, keep last N implicitly via length) ---
+    # --- Merge insights (append, trim) ---
     if "insights" in memory_patch:
         new_insights = [s for s in memory_patch["insights"] if isinstance(s, str)]
         current.setdefault("insights", []).extend(new_insights)
+        current["insights"] = current["insights"][-_INSIGHTS_MAX:]
 
     # --- Merge recent_logs (append, trim) ---
     if "recent_logs" in memory_patch:
@@ -258,7 +260,8 @@ async def update_factor_memory_impl(
         current["recent_logs"] = current["recent_logs"][-_RECENT_LOGS_MAX:]
 
     current["last_updated"] = datetime.now(timezone.utc).isoformat()
-    current["library_size"] = current.get("library_size", 0)
+    if "library_size" in memory_patch:
+        current["library_size"] = memory_patch["library_size"]
 
     # Persist
     cache = get_cache_client()

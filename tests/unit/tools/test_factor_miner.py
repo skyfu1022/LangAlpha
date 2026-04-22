@@ -9,6 +9,7 @@ import pytest
 
 from src.tools.factor_miner.implementations import (
     DEFAULT_MEMORY,
+    _INSIGHTS_MAX,
     _RECOMMENDED_MAX,
     admit_factor_impl,
     get_factor_memory_impl,
@@ -327,3 +328,29 @@ class TestUpdateFactorMemory:
         directions = [f["direction"] for f in result["memory"]["forbidden"]]
         assert directions.count("short-biased") == 1
         assert "high-turnover" in directions
+
+    @pytest.mark.asyncio
+    async def test_update_factor_memory_trims_insights(self, patch_cache_client):
+        """Insights list is trimmed to _INSIGHTS_MAX."""
+        patch_cache_client.get.return_value = None
+
+        insights = [f"insight_{i}" for i in range(_INSIGHTS_MAX + 5)]
+        memory_patch = {"insights": insights}
+
+        result = await update_factor_memory_impl("ws-001", memory_patch)
+
+        mem = result["memory"]
+        assert len(mem["insights"]) == _INSIGHTS_MAX
+        assert mem["insights"][0] == "insight_5"
+
+    @pytest.mark.asyncio
+    async def test_update_factor_memory_ignores_non_string_insights(self, patch_cache_client):
+        """Non-string insights are silently filtered out."""
+        patch_cache_client.get.return_value = None
+
+        memory_patch = {"insights": ["valid", 123, None, {"bad": True}, "also_valid"]}
+
+        result = await update_factor_memory_impl("ws-001", memory_patch)
+
+        mem = result["memory"]
+        assert mem["insights"] == ["valid", "also_valid"]

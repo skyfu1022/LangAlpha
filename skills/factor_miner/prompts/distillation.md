@@ -84,20 +84,20 @@
 ```json
 {
   "recommended": [
-    "rank + ts_delta 组合在 5-10 日窗口表现稳定，ICIR 中位数 > 0.5",
-    "成交量相对均值的偏离度经 zscore 标准化后 IC 显著"
+    {"pattern": "rank_ts_delta", "description": "rank + ts_delta 组合在 5-10 日窗口表现稳定，ICIR 中位数 > 0.5", "example_formula": "rank(ts_delta($close, 5))"},
+    {"pattern": "volume_zscore", "description": "成交量相对均值的偏离度经 zscore 标准化后 IC 显著", "example_formula": "zscore($volume / ts_mean($volume, 20))"}
   ],
   "forbidden": [
-    "纯收盘价动量在长窗口 (>20日) IC 趋近于零",
-    "ts_kurtosis 单独使用 IC 不显著"
+    {"direction": "long_momentum", "description": "纯收盘价动量在长窗口 (>20日) IC 趋近于零", "correlated_with": "rank(ts_delta($close, 20))"},
+    {"direction": "kurtosis_solo", "description": "ts_kurtosis 单独使用 IC 不显著", "correlated_with": ""}
   ],
   "insights": [
     "20 日窗口的时序算子普遍比 60 日窗口 IC 更高，但换手率也更高",
     "量价类因子在极端行情日 IC 出现漂移"
   ],
   "recent_logs": [
-    "[2026-04-21] 第 3 轮：生成 20 个候选，通过 IC 筛选 8 个，通过相关性检查 3 个，入库 3 个",
-    "[2026-04-21] 最高 ICIR 因子：rank(ts_delta($close, 5))，ICIR=1.2"
+    {"batch": 3, "candidates": 20, "passed_ic": 8, "passed_corr": 3, "admitted": 3},
+    {"batch": 2, "candidates": 15, "passed_ic": 5, "passed_corr": 1, "admitted": 1}
   ]
 }
 ```
@@ -120,18 +120,18 @@
 ### 容量淘汰
 当各类别超过上限时，按以下优先级淘汰：
 
-**Recommended**（上限 20 条）：
+**Recommended**（上限 10 条）：
 1. 淘汰对应的因子 ICIR 最低的条目
 2. 如果有多条描述相似方向，合并为一条
 
-**Forbidden**（上限 20 条）：
+**Forbidden**（上限 15 条）：
 1. 淘汰最早记录的条目（久远的禁止方向可能已过时）
 
 **Insights**（上限 15 条）：
 1. 淘汰最通用（最不具体）的条目
 
-**Recent Logs**（上限 10 条）：
-1. 淘汰最旧的日志条目，只保留最近 10 轮
+**Recent Logs**（上限 20 条）：
+1. 淘汰最旧的日志条目，只保留最近 20 轮
 
 ## 执行流程
 
