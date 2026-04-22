@@ -92,4 +92,4 @@ docs/api/environments/production.yml
 .gstack/
 TODO.md
 
-paper
+paper.worktrees/
