@@ -10,6 +10,8 @@ import {
 } from '../utils/api';
 import type { PortfolioHoldingPayload, PortfolioHoldingUpdatePayload } from '../utils/portfolio';
 import type { StockPrice } from '@/types/market';
+import type { MarketRegion } from '@/lib/marketConfig';
+import { filterByMarket } from '@/lib/marketConfig';
 
 export interface PortfolioRow {
   user_portfolio_id?: string | number;
@@ -62,7 +64,7 @@ interface ApiError {
  * Used by both Dashboard and MarketView sidebar.
  * Refactored to use TanStack Query for optimal polling and caching.
  */
-export function usePortfolioData() {
+export function usePortfolioData(market: MarketRegion = 'us') {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -71,7 +73,7 @@ export function usePortfolioData() {
   const [editForm, setEditForm] = useState<PortfolioEditForm>({ quantity: '', averageCost: '', notes: '' });
 
   const { data = { rows: [], hasRealHoldings: false }, isLoading: loading, refetch: fetchPortfolio } = useQuery<PortfolioQueryData>({
-    queryKey: ['portfolioData'],
+    queryKey: ['portfolioData', market],
     queryFn: async (): Promise<PortfolioQueryData> => {
       const { holdings } = await getPortfolio() as { holdings?: Array<{ user_portfolio_id: string; symbol: string; quantity?: number; average_cost?: number | null; notes?: string; [key: string]: unknown }> };
       const symbols = holdings?.length
@@ -104,7 +106,8 @@ export function usePortfolioData() {
             lateTradingChangePercent: p.lateTradingChangePercent ?? null,
           };
         });
-        return { rows: combined, hasRealHoldings: true };
+        const filtered = filterByMarket(combined, market);
+        return { rows: filtered, hasRealHoldings: true };
       }
       return { rows: [], hasRealHoldings: false };
     },
@@ -147,7 +150,7 @@ export function usePortfolioData() {
         }
       }
     },
-    [queryClient, toast]
+    [queryClient, toast, market]
   );
 
   const handleDelete = useCallback(
@@ -168,7 +171,7 @@ export function usePortfolioData() {
         },
       };
     },
-    [queryClient]
+    [queryClient, market]
   );
 
   const openEdit = useCallback((row: PortfolioRow | null) => {
@@ -218,7 +221,7 @@ export function usePortfolioData() {
         });
       }
     }
-  }, [editRow, editForm, queryClient, toast]);
+  }, [editRow, editForm, queryClient, toast, market]);
 
   return {
     rows,
