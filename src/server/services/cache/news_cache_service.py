@@ -15,11 +15,11 @@ _GENERAL_TTL = 300  # 5 min for general news
 _TICKER_TTL = 180  # 3 min for ticker-specific news
 
 
-def _cache_key(tickers: list[str] | None, limit: int) -> str:
+def _cache_key(tickers: list[str] | None, limit: int, market: str | None = None) -> str:
     if tickers:
         tag = ",".join(sorted(t.upper() for t in tickers))
-        return f"news:tickers:{tag}:{limit}"
-    return f"news:general:{limit}"
+        return f"news:{market or 'all'}:tickers:{tag}:{limit}"
+    return f"news:{market or 'all'}:general:{limit}"
 
 
 class NewsCacheService:
@@ -34,10 +34,11 @@ class NewsCacheService:
         self,
         tickers: list[str] | None = None,
         limit: int = 20,
+        market: str | None = None,
     ) -> dict[str, Any] | None:
         try:
             cache = get_cache_client()
-            key = _cache_key(tickers, limit)
+            key = _cache_key(tickers, limit, market=market)
             raw = await cache.get(key)
             if raw is not None:
                 return json.loads(raw)
@@ -66,10 +67,11 @@ class NewsCacheService:
         data: dict[str, Any],
         tickers: list[str] | None = None,
         limit: int = 20,
+        market: str | None = None,
     ) -> None:
         try:
             cache = get_cache_client()
-            key = _cache_key(tickers, limit)
+            key = _cache_key(tickers, limit, market=market)
             ttl = _TICKER_TTL if tickers else _GENERAL_TTL
             await cache.set(key, json.dumps(data), ttl=ttl)
         except Exception:

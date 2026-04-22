@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Query
 
 from src.server.models.news import (
@@ -20,6 +22,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/news", tags=["News"])
 
 _cache = NewsCacheService()
+
+_CN_SUFFIXES = ('.SH', '.SZ', '.SS')
+
+
+def _filter_by_market(articles: list[dict], market: str | None) -> list[dict]:
+    """Filter articles by market based on ticker suffixes.
+
+    CN market: keep articles with tickers ending in .SH/.SZ/.SS.
+    US market: keep articles WITHOUT such suffixes.
+    No market (None): return all articles unchanged.
+    """
+    if not market:
+        return articles
+    filtered = []
+    for article in articles:
+        tickers = article.get('tickers', []) or []
+        if market == 'cn':
+            if any(str(t).upper().endswith(_CN_SUFFIXES) for t in tickers):
+                filtered.append(article)
+        elif market == 'us':
+            if not any(str(t).upper().endswith(_CN_SUFFIXES) for t in tickers):
+                filtered.append(article)
+        else:
+            filtered.append(article)
+    return filtered
 
 
 def _compact(article: dict) -> NewsArticleCompact | None:
@@ -54,6 +81,9 @@ async def get_news(
     published_before: str | None = Query(None, description="ISO 8601 date filter"),
     order: str | None = Query(None, description="Sort order: asc or desc"),
     sort: str | None = Query(None, description="Sort field, e.g. published_utc"),
+    market: Optional[str] = Query(
+        None, description="Market filter: 'us' or 'cn'. Filters articles by ticker suffix."
+    ),
 ) -> NewsCompactResponse:
     ticker_list = (
         [t.strip().upper() for t in tickers.split(",") if t.strip()]
@@ -63,7 +93,7 @@ async def get_news(
 
     # Check cache (skip when cursor is used — paginated requests bypass cache)
     if not cursor:
-        cached = await _cache.get(tickers=ticker_list, limit=limit)
+        cached = await _cache.get(tickers=ticker_list, limit=limit, market=market)
         if cached:
             results = [c for a in cached["results"] if (c := _compact(a)) is not None]
             return NewsCompactResponse(
@@ -86,9 +116,13 @@ async def get_news(
         user_id=user_id,
     )
 
+    # Filter by market BEFORE applying limit / returning results
+    if market:
+        data["results"] = _filter_by_market(data["results"], market)
+
     # Populate cache (stores full articles internally)
     if not cursor:
-        await _cache.set(data, tickers=ticker_list, limit=limit)
+        await _cache.set(data, tickers=ticker_list, limit=limit, market=market)
 
     results = [c for a in data["results"] if (c := _compact(a)) is not None]
     return NewsCompactResponse(
