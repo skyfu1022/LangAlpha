@@ -3,20 +3,34 @@ import ChatInput, { type ChatInputHandle } from '../../../components/ui/chat-inp
 import { useChatInput } from '../hooks/useChatInput';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { MobileFabChat } from '@/components/ui/mobile-fab-chat';
+import type { MarketRegion } from '@/lib/marketConfig';
 
-const SUGGESTION_CHIPS: string[] = [
-  "Summarize Apple's earnings",
-  'Compare TSLA vs BYD',
-  'Predict market volatility',
-  'Analyze my portfolio risk',
-];
+const SUGGESTION_CHIPS: Record<MarketRegion, string[]> = {
+  us: [
+    "Summarize Apple's earnings",
+    'Compare TSLA vs BYD',
+    'Predict market volatility',
+    'Analyze my portfolio risk',
+  ],
+  cn: [
+    '分析贵州茅台最新财报',
+    '比较比亚迪与蔚来',
+    '预测A股市场走势',
+    '分析我的持仓风险',
+  ],
+};
+
+const SUGGESTION_PLACEHOLDERS: Record<MarketRegion, string> = {
+  us: 'Ask AI about market trends, specific stocks, or portfolio analysis...',
+  cn: '向 AI 提问市场趋势、个股分析或持仓诊断...',
+};
 
 /**
  * Floating chat input wrapper for dashboard.
  * Renders as a fixed pill at the bottom of the viewport.
  * On mobile: collapses to a floating logo FAB by default.
  */
-function ChatInputCard() {
+function ChatInputCard({ market = 'us' }: { market?: MarketRegion }) {
   const {
     mode,
     setMode,
@@ -56,7 +70,7 @@ function ChatInputCard() {
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
             onWorkspaceChange={setSelectedWorkspaceId}
-            placeholder="Ask AI about market trends..."
+            placeholder={SUGGESTION_PLACEHOLDERS[market]}
           />
         </div>
       </MobileFabChat>
@@ -68,7 +82,7 @@ function ChatInputCard() {
       <div className="pointer-events-auto w-full max-w-2xl px-4">
         {/* Suggestion bubbles — above the input, outside focus container */}
         <div className={`dashboard-suggestion-bubbles ${focused ? 'visible' : ''}`}>
-          {SUGGESTION_CHIPS.map((label, i) => (
+          {SUGGESTION_CHIPS[market].map((label, i) => (
             <button
               key={label}
               type="button"
@@ -98,7 +112,7 @@ function ChatInputCard() {
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
             onWorkspaceChange={setSelectedWorkspaceId}
-            placeholder="Ask AI about market trends, specific stocks, or portfolio analysis..."
+            placeholder={SUGGESTION_PLACEHOLDERS[market]}
           />
         </div>
       </div>
