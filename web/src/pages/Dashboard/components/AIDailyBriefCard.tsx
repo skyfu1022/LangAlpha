@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import TopicBadge from './TopicBadge';
 import { getTodayInsights, getInsightDetail, generatePersonalizedInsight } from '../utils/api';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import type { MarketRegion } from '@/lib/marketConfig';
 
 interface InsightTopic {
   text: string;
@@ -21,6 +22,7 @@ interface Insight {
 }
 
 interface AIDailyBriefCardProps {
+  market?: MarketRegion;
   onReadFull?: (marketInsightId: string) => void;
 }
 
@@ -29,14 +31,22 @@ interface TypeConfigEntry {
   accent: string;
 }
 
-// Module-level cache (survives navigation, clears on page refresh)
-let insightsCache: Insight[] | null = null;
+// Module-level cache per market (survives navigation, clears on page refresh)
+const insightsCacheByMarket: Record<string, Insight[] | null> = {};
 
-const TYPE_CONFIG: Record<string, TypeConfigEntry> = {
-  pre_market: { label: 'Pre-Market', accent: 'var(--color-profit)' },
-  market_update: { label: 'Market Update', accent: 'var(--color-accent-primary)' },
-  post_market: { label: 'Post-Market', accent: '#a78bfa' },
-  personalized: { label: 'Personalized', accent: '#f59e0b' },
+const TYPE_CONFIG_BY_MARKET: Record<MarketRegion, Record<string, TypeConfigEntry>> = {
+  us: {
+    pre_market: { label: 'Pre-Market', accent: 'var(--color-profit)' },
+    market_update: { label: 'Market Update', accent: 'var(--color-accent-primary)' },
+    post_market: { label: 'Post-Market', accent: '#a78bfa' },
+    personalized: { label: 'Personalized', accent: '#f59e0b' },
+  },
+  cn: {
+    pre_market: { label: '盘前', accent: 'var(--color-profit)' },
+    market_update: { label: '盘中更新', accent: 'var(--color-accent-primary)' },
+    post_market: { label: '盘后', accent: '#a78bfa' },
+    personalized: { label: '个性化', accent: '#f59e0b' },
+  },
 };
 
 function formatRelativeTime(timestamp: string | undefined): string {
@@ -123,9 +133,10 @@ function MobileTopicRow({ topics }: { topics: InsightTopic[] }) {
   );
 }
 
-function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
-  const [insights, setInsights] = useState<Insight[]>(insightsCache || []);
-  const [loading, setLoading] = useState(!insightsCache);
+function AIDailyBriefCard({ market = 'us', onReadFull }: AIDailyBriefCardProps) {
+  const TYPE_CONFIG = TYPE_CONFIG_BY_MARKET[market];
+  const [insights, setInsights] = useState<Insight[]>(insightsCacheByMarket[market] || []);
+  const [loading, setLoading] = useState(!insightsCacheByMarket[market]);
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -136,19 +147,30 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
   }, []);
 
   useEffect(() => {
-    if (insightsCache) return;
+    const cached = insightsCacheByMarket[market];
+    if (cached) {
+      setInsights(cached);
+      setLoading(false);
+      return;
+    }
+    setInsights([]);
+    setLoading(true);
+  }, [market]);
+
+  useEffect(() => {
+    if (insightsCacheByMarket[market]) return;
     let cancelled = false;
-    getTodayInsights().then((data) => {
+    getTodayInsights(market).then((data) => {
       if (cancelled) return;
       const typedData = data as unknown as Insight[];
       if (typedData?.length) {
-        insightsCache = typedData;
+        insightsCacheByMarket[market] = typedData;
         setInsights(typedData);
       }
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [market]);
 
   const latest: Insight | null = insights[0] || null;
   const older = insights.slice(1);
@@ -165,7 +187,7 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
     setGenerating(true);
     setGenerateError(null);
     try {
-      const row = await generatePersonalizedInsight() as unknown as Insight;
+      const row = await generatePersonalizedInsight(market) as unknown as Insight;
       if (!row?.market_insight_id) return;
       const insightId = row.market_insight_id;
 
@@ -182,10 +204,9 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
               // Prepend to insights list (functional update to avoid stale closure)
               setInsights(prev => {
                 const updated = [detail, ...prev.filter((ins) => ins.market_insight_id !== insightId)];
+                insightsCacheByMarket[market] = updated;
                 return updated;
               });
-              // Update module cache outside the updater (side-effect-free updater)
-              insightsCache = null; // invalidate — next mount will refetch
               onReadFull?.(insightId);
               return;
             }
@@ -220,7 +241,7 @@ function AIDailyBriefCard({ onReadFull }: AIDailyBriefCardProps) {
     } finally {
       setGenerating(false);
     }
-  }, [generating, onReadFull]);
+  }, [generating, onReadFull, market]);
 
   // Loading skeleton
   if (loading) {
