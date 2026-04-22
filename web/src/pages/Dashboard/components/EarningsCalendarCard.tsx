@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronRight, X, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getEarningsCalendar } from '../utils/api';
+import type { MarketRegion } from '@/lib/marketConfig';
 
 interface EarningsEntry {
   symbol: string;
@@ -32,6 +33,7 @@ interface SectionLabelProps {
 interface EarningsModalProps {
   earnings: EarningsEntry[];
   onClose: () => void;
+  market?: MarketRegion;
 }
 
 interface DateGroup {
@@ -122,7 +124,7 @@ function formatDateTab(dateStr: string | undefined): DateTabInfo {
   return { weekday, label: `${month} ${day}` };
 }
 
-function EarningsModal({ earnings, onClose }: EarningsModalProps) {
+function EarningsModal({ earnings, onClose, market = 'us' }: EarningsModalProps) {
   const todayStr = new Date().toISOString().split('T')[0];
 
   // Group by date, sorted chronologically
@@ -186,7 +188,7 @@ function EarningsModal({ earnings, onClose }: EarningsModalProps) {
         <div className="flex items-center justify-between px-6 pt-6 pb-4 flex-shrink-0">
           <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: 'var(--color-text-primary)' }}>
             <Calendar size={20} style={{ color: 'var(--color-accent-light)' }} />
-            Earnings Calendar
+            {market === 'cn' ? '财报日历' : 'Earnings Calendar'}
           </h2>
           <button
             onClick={onClose}
@@ -313,7 +315,7 @@ function EarningsModal({ earnings, onClose }: EarningsModalProps) {
   );
 }
 
-function EarningsCalendarCard() {
+function EarningsCalendarCard({ market = 'us' }: { market?: MarketRegion }) {
   const [allEarnings, setAllEarnings] = useState<EarningsEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -324,17 +326,16 @@ function EarningsCalendarCard() {
       const today = new Date();
       const from = new Date(today.getTime() - 5 * 86400000).toISOString().split('T')[0];
       const to = new Date(today.getTime() + 5 * 86400000).toISOString().split('T')[0];
-      const result = await getEarningsCalendar({ from, to });
-      // Filter to US-market symbols only (no dot-suffix like .BK, .TW, .L, .TO, etc.)
-      const usOnly = ((result?.data || []) as EarningsEntry[]).filter((e) => e.symbol && !e.symbol.includes('.'));
-      setAllEarnings(usOnly);
+      const result = await getEarningsCalendar({ from, to, market });
+      const entries = ((result?.data || []) as EarningsEntry[]).filter((e) => e.symbol);
+      setAllEarnings(entries);
     } catch (err: unknown) {
       console.error('[EarningsCalendarCard] fetch failed:', (err as Error)?.message);
       setAllEarnings([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [market]);
 
   useEffect(() => {
     fetchEarnings();
@@ -364,7 +365,7 @@ function EarningsCalendarCard() {
       <div className="dashboard-glass-card p-6 flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-            Earnings Calendar
+            {market === 'cn' ? '财报日历' : 'Earnings Calendar'}
           </h2>
           <button
             onClick={() => setModalOpen(true)}
@@ -399,15 +400,15 @@ function EarningsCalendarCard() {
             ))
           ) : previewItems.length === 0 ? (
             <p className="text-sm py-4 text-center" style={{ color: 'var(--color-text-secondary)' }}>
-              No earnings in this period
+              {market === 'cn' ? '该时段暂无财报' : 'No earnings in this period'}
             </p>
           ) : (
             <>
-              {previewItems.some((e) => e._isPast) && <SectionLabel label="Recent" />}
+              {previewItems.some((e) => e._isPast) && <SectionLabel label={market === 'cn' ? '近期' : 'Recent'} />}
               {previewItems.filter((e) => e._isPast).map((item, i) => (
                 <EarningsItem key={item.symbol + item.date + i} item={item} index={i} isPast />
               ))}
-              {previewItems.some((e) => !e._isPast) && <SectionLabel label="Upcoming" />}
+              {previewItems.some((e) => !e._isPast) && <SectionLabel label={market === 'cn' ? '即将公布' : 'Upcoming'} />}
               {previewItems.filter((e) => !e._isPast).map((item, i) => (
                 <EarningsItem key={item.symbol + item.date + i} item={item} index={i} />
               ))}
@@ -419,7 +420,7 @@ function EarningsCalendarCard() {
       {createPortal(
         <AnimatePresence>
           {modalOpen && (
-            <EarningsModal earnings={allEarnings} onClose={() => setModalOpen(false)} />
+            <EarningsModal earnings={allEarnings} onClose={() => setModalOpen(false)} market={market} />
           )}
         </AnimatePresence>,
         document.body
