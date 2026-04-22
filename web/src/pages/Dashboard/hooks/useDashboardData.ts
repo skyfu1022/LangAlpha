@@ -86,9 +86,9 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
 
   // 3. News Feed (Fetched once, cached for 5 minutes)
   const { data: newsItems = [], isLoading: newsLoading } = useQuery<NewsItem[]>({
-    queryKey: ['dashboard', 'news'],
+    queryKey: ['dashboard', 'news', market],
     queryFn: async (): Promise<NewsItem[]> => {
-      const data = await getNews({ limit: 50 });
+      const data = await getNews({ limit: 50, market });
       if (data.results && data.results.length > 0) {
         return data.results.map((r: Record<string, unknown>) => ({
           id: r.id as string,
