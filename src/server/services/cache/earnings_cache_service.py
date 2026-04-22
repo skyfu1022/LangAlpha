@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 _TTL = 86400  # 24 hours
 
 
-def _cache_key(from_date: str, to_date: str) -> str:
-    return f"earnings:{from_date}:{to_date}"
+def _cache_key(from_date: str, to_date: str, market: str | None = None) -> str:
+    return f"earnings:{from_date}:{to_date}:{market or 'us'}"
 
 
 class EarningsCacheService:
@@ -25,19 +25,29 @@ class EarningsCacheService:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    async def get(self, from_date: str, to_date: str) -> list[dict[str, Any]] | None:
+    async def get(
+        self, from_date: str, to_date: str, market: str | None = None
+    ) -> list[dict[str, Any]] | None:
         try:
             cache = get_cache_client()
-            raw = await cache.get(_cache_key(from_date, to_date))
+            raw = await cache.get(_cache_key(from_date, to_date, market))
             if raw is not None:
                 return json.loads(raw)
         except Exception:
             logger.debug("earnings_cache.get.miss", exc_info=True)
         return None
 
-    async def set(self, data: list[dict[str, Any]], from_date: str, to_date: str) -> None:
+    async def set(
+        self,
+        data: list[dict[str, Any]],
+        from_date: str,
+        to_date: str,
+        market: str | None = None,
+    ) -> None:
         try:
             cache = get_cache_client()
-            await cache.set(_cache_key(from_date, to_date), json.dumps(data), ttl=_TTL)
+            await cache.set(
+                _cache_key(from_date, to_date, market), json.dumps(data), ttl=_TTL
+            )
         except Exception:
             logger.debug("earnings_cache.set.failed", exc_info=True)
