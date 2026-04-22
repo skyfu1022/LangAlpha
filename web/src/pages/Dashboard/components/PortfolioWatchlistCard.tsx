@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { getExtendedHoursInfo } from '@/lib/marketUtils';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { MARKET_CONFIG, type MarketRegion } from '@/lib/marketConfig';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@/components/ui/context-menu';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 
@@ -44,9 +45,10 @@ interface WatchlistItemProps {
   onDelete?: (id: string) => void;
   marketStatus: MarketStatusData;
   isMobile: boolean;
+  isCnMarket: boolean;
 }
 
-function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: WatchlistItemProps) {
+function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMarket }: WatchlistItemProps) {
   const navigate = useNavigate();
   const pos = item.isPositive;
   const pctStr = (pos ? '+' : '') + Number(item.changePercent).toFixed(2) + '%';
@@ -100,7 +102,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: Watchl
           >
             {pctStr}
           </div>
-          {extType && extPct != null && (
+          {!isCnMarket && extType && extPct != null && (
             <div className="text-[10px] mt-0.5 text-center flex items-center justify-center gap-0.5" style={{ color: extColor }}>
               {extType === 'pre' ? <Sunrise size={10} /> : <Sunset size={10} />}
               {Number(item.price).toFixed(2)} {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
@@ -158,9 +160,11 @@ interface PortfolioItemProps {
   valuesHidden: boolean;
   marketStatus: MarketStatusData;
   isMobile: boolean;
+  currencySymbol: string;
+  isCnMarket: boolean;
 }
 
-function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStatus, isMobile }: PortfolioItemProps) {
+function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStatus, isMobile, currencySymbol, isCnMarket }: PortfolioItemProps) {
   const navigate = useNavigate();
   const pos = item.isPositive;
   const plStr =
@@ -202,7 +206,7 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
       <div className="flex items-center gap-4">
         <div className="text-right">
           <div className="text-sm font-medium dashboard-mono" style={{ color: 'var(--color-text-primary)' }}>
-            {valuesHidden ? '******' : `$${Number(item.marketValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            {valuesHidden ? '******' : `${currencySymbol}${Number(item.marketValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </div>
           <div className="text-xs dashboard-mono" style={{ color: 'var(--color-text-secondary)' }}>
             {valuesHidden ? '***' : `@${Number(extType && item.previousClose != null ? item.previousClose : item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
@@ -219,7 +223,7 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
           >
             {plStr}
           </div>
-          {extType && extPct != null && (
+          {!isCnMarket && extType && extPct != null && (
             <div className="text-[10px] mt-0.5 text-center flex items-center justify-center gap-0.5" style={{ color: extColor }}>
               {extType === 'pre' ? <Sunrise size={10} /> : <Sunset size={10} />}
               {Number(item.price).toFixed(2)} {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
@@ -321,6 +325,7 @@ interface PortfolioWatchlistCardProps {
   onPortfolioDelete?: (id: string) => void;
   onPortfolioEdit?: (item: PortfolioRow) => void;
   marketStatus: MarketStatusData;
+  market?: MarketRegion;
 }
 
 function PortfolioWatchlistCard({
@@ -335,8 +340,11 @@ function PortfolioWatchlistCard({
   onPortfolioDelete,
   onPortfolioEdit,
   marketStatus,
+  market = 'us',
 }: PortfolioWatchlistCardProps) {
   const isMobile = useIsMobile();
+  const marketConfig = MARKET_CONFIG[market];
+  const isCnMarket = market === 'cn';
   const [activeTab, setActiveTabRaw] = useState<PWTabKey>(() => (localStorage.getItem('portfolio_active_tab') as PWTabKey) || 'watchlist');
   const [valuesHidden, setValuesHiddenRaw] = useState(() => localStorage.getItem('portfolio_values_hidden') === 'true');
 
@@ -430,6 +438,7 @@ function PortfolioWatchlistCard({
                       onDelete={onWatchlistDelete}
                       marketStatus={marketStatus}
                       isMobile={isMobile}
+                      isCnMarket={isCnMarket}
                     />
                   ))}
               <AddNewButton label="Add Symbol" onClick={onWatchlistAdd} />
@@ -469,7 +478,7 @@ function PortfolioWatchlistCard({
                     className="text-2xl font-bold mb-2 dashboard-mono"
                     style={{ color: 'var(--color-text-primary)' }}
                   >
-                    {valuesHidden ? '********' : `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    {valuesHidden ? '********' : `${marketConfig.currencySymbol}${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </div>
                   {!valuesHidden && (
                     <div
@@ -480,7 +489,7 @@ function PortfolioWatchlistCard({
                       }}
                     >
                       {isPlPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                      {isPlPositive ? '+' : '-'}${Math.abs(totalPl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({totalPlPct.toFixed(1)}%)
+                      {isPlPositive ? '+' : '-'}{marketConfig.currencySymbol}{Math.abs(totalPl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({totalPlPct.toFixed(1)}%)
                     </div>
                   )}
                 </div>
@@ -511,6 +520,8 @@ function PortfolioWatchlistCard({
                       valuesHidden={valuesHidden}
                       marketStatus={marketStatus}
                       isMobile={isMobile}
+                      currencySymbol={marketConfig.currencySymbol}
+                      isCnMarket={isCnMarket}
                     />
                   ))}
               <AddNewButton label="Add Transaction" onClick={onPortfolioAdd} />
