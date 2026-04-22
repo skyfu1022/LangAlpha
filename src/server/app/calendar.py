@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from src.data_client.fmp.fmp_client import FMPClient
+from src.data_client.tushare import get_tushare_client
 from src.server.models.calendar import (
     EarningsCalendarResponse,
     EarningsEvent,
@@ -35,6 +36,53 @@ def _default_dates(
     if not to_date:
         to_date = (today + timedelta(days=7)).isoformat()
     return from_date, to_date
+
+
+async def _fetch_cn_earnings(
+    from_date: str, to_date: str
+) -> list[EarningsEvent]:
+    """通过 Tushare 获取 A 股财报日期。"""
+    try:
+        client = await get_tushare_client()
+        raw = await client.get_disclosure_dates(from_date, to_date)
+    except Exception as e:
+        logger.error("tushare.earnings.error: %s", e)
+        return []
+
+    events: list[EarningsEvent] = []
+    for r in raw:
+        ts_code = r.get("ts_code", "")
+        ann_date = r.get("ann_date") or r.get("actual_date", "")
+        if not ts_code or not ann_date:
+            continue
+        if len(ann_date) == 8:
+            formatted = f"{ann_date[:4]}-{ann_date[4:6]}-{ann_date[6:8]}"
+        else:
+            formatted = ann_date
+        events.append(EarningsEvent(symbol=ts_code, date=formatted))
+    return events
+
+
+async def _fetch_us_earnings(
+    from_date: str, to_date: str
+) -> list[EarningsEvent]:
+    """通过 FMP 获取美股 earnings。"""
+    try:
+        fmp_client = FMPClient()
+    except (ValueError, ImportError):
+        return []
+
+    try:
+        raw = await fmp_client.get_earnings_calendar_by_date(
+            from_date=from_date, to_date=to_date
+        )
+        items = raw or []
+        return [EarningsEvent(**item) for item in items]
+    except Exception as e:
+        logger.error("Error fetching US earnings calendar: %s", e)
+        return []
+    finally:
+        await fmp_client.close()
 
 
 @router.get("/economic", response_model=EconomicCalendarResponse)
@@ -82,39 +130,25 @@ async def get_earnings_calendar(
     to_date: Optional[str] = Query(
         None, alias="to", description="End date (YYYY-MM-DD). Defaults to today+7."
     ),
+    market: Optional[str] = Query(
+        None, description="Market filter: 'us' or 'cn'. Defaults to 'us'."
+    ),
 ) -> EarningsCalendarResponse:
     """Get upcoming and past earnings announcements with EPS and revenue data."""
     from_date, to_date = _default_dates(from_date, to_date)
 
     # Check cache
-    cached = await _earnings_cache.get(from_date, to_date)
+    cached = await _earnings_cache.get(from_date, to_date, market=market)
     if cached is not None:
         events = [EarningsEvent(**item) for item in cached]
         return EarningsCalendarResponse(data=events, count=len(events))
 
-    try:
-        fmp_client = FMPClient()
-    except (ValueError, ImportError):
-        # FMP unavailable — no fallback for earnings calendar
-        return EarningsCalendarResponse(data=[], count=0)
+    if market == "cn":
+        events = await _fetch_cn_earnings(from_date, to_date)
+    else:
+        events = await _fetch_us_earnings(from_date, to_date)
 
-    try:
-        try:
-            raw = await fmp_client.get_earnings_calendar_by_date(
-                from_date=from_date, to_date=to_date
-            )
-            items = raw or []
-            events = [EarningsEvent(**item) for item in items]
-
-            # Populate cache
-            await _earnings_cache.set(items, from_date, to_date)
-
-            return EarningsCalendarResponse(data=events, count=len(events))
-        finally:
-            await fmp_client.close()
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error fetching earnings calendar: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    await _earnings_cache.set(
+        [e.model_dump() for e in events], from_date, to_date, market=market
+    )
+    return EarningsCalendarResponse(data=events, count=len(events))
