@@ -18,6 +18,7 @@ DEFAULT_DEPENDENCIES = [
     "statsmodels",
     # Financial data
     "yfinance",
+    "phandas",
     # Visualization
     "matplotlib",
     "seaborn",

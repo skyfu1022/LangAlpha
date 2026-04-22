@@ -50,6 +50,7 @@ dependencies = [
     "tabulate",
     "scikit-learn",
     "scipy",
+    "phandas>=0.18.0,<0.20.0",
     "statsmodels",
     "seaborn",
     "plotly",

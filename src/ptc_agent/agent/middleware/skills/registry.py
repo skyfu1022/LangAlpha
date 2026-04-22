@@ -12,6 +12,7 @@ from typing import Any, Literal
 from src.tools.automation import AUTOMATION_TOOLS
 from src.tools.onboarding import ONBOARDING_TOOLS
 from src.tools.user_profile import USER_PROFILE_TOOLS
+from src.tools.factor_miner import FACTOR_MINER_TOOLS
 
 # Type alias for agent modes that can use skills
 SkillMode = Literal["ptc", "flash"]
@@ -104,6 +105,14 @@ SKILL_REGISTRY: dict[str, SkillDefinition] = {
         tools=AUTOMATION_TOOLS,
         skill_md_path="skills/automation/SKILL.md",
         exposure="both",
+    ),
+    "factor-miner": SkillDefinition(
+        name="factor-miner",
+        description="Alpha factor mining: discover, evaluate, and manage formulaic alpha factors with self-evolving experience memory",
+        tools=FACTOR_MINER_TOOLS,
+        skill_md_path="skills/factor_miner/SKILL.md",
+        exposure="ptc",
+        command="factor-miner",
     ),
     "pdf": SkillDefinition(
         name="pdf",
