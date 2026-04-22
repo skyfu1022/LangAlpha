@@ -18,6 +18,12 @@ export interface IndexData {
   previousClose?: number | null;
 }
 
+export type MarketOverviewAssetType = 'index' | 'etf';
+
+export interface MarketOverviewItem extends IndexData {
+  assetType: MarketOverviewAssetType;
+}
+
 export interface IndicesResponse {
   indices: IndexData[];
   failedCount: number;

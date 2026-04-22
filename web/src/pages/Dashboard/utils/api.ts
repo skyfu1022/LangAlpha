@@ -104,13 +104,26 @@ interface InfoFlowResponse {
 
 import { MARKET_CONFIG, type MarketRegion } from '@/lib/marketConfig';
 
-/** Build index symbols/names for the given market region. */
+/** Build index symbols/names/types for the given market region. */
 function getIndexConfig(market: MarketRegion) {
   const cfg = MARKET_CONFIG[market];
-  const symbols = cfg.indices.map((i) => i.symbol);
+  const symbols: string[] = [];
   const names: Record<string, string> = {};
-  cfg.indices.forEach((i) => { names[i.symbol] = i.name; });
-  return { symbols, names };
+  const types: Record<string, 'index' | 'etf'> = {};
+
+  cfg.indices.forEach((i) => {
+    symbols.push(i.symbol);
+    names[i.symbol] = i.name;
+    types[i.symbol] = 'index';
+  });
+
+  cfg.etfs.forEach((i) => {
+    if (!symbols.includes(i.symbol)) symbols.push(i.symbol);
+    names[i.symbol] = i.name;
+    types[i.symbol] = 'etf';
+  });
+
+  return { symbols, names, types };
 }
 
 /** Legacy defaults for US market (used when market is not specified). */

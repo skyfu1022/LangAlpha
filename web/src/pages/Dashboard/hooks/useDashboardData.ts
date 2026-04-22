@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getNews, getIndices, fallbackIndex, normalizeIndexSymbol, getIndexConfig } from '../utils/api';
 import { fetchMarketStatus } from '@/lib/marketUtils';
 import type { MarketRegion } from '@/lib/marketConfig';
-import type { IndexData } from '@/types/market';
+import type { MarketOverviewItem } from '@/types/market';
 
 interface MarketStatusData {
   market?: string;
@@ -24,7 +24,7 @@ interface NewsItem {
 }
 
 interface DashboardData {
-  indices: IndexData[] | undefined;
+  indices: MarketOverviewItem[] | undefined;
   indicesLoading: boolean;
   newsItems: NewsItem[];
   newsLoading: boolean;
@@ -70,15 +70,25 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
 
   const indexCfg = getIndexConfig(market);
 
-  const { data: indices, isLoading: indicesLoading } = useQuery<IndexData[]>({
+  const { data: indices, isLoading: indicesLoading } = useQuery<MarketOverviewItem[]>({
     queryKey: ['dashboard', 'indices', market, indexCfg.symbols],
     queryFn: async () => {
       const { indices: next } = await getIndices(indexCfg.symbols);
-      return next;
+      return next.map((item) => {
+        const norm = normalizeIndexSymbol(item.symbol);
+        return {
+          ...item,
+          assetType: indexCfg.types[norm] ?? 'index',
+        };
+      });
     },
     // Using placeholderData provides standard fallback values instantly
     // without populating the cache as "fresh", thereby triggering an immediate background fetch
-    placeholderData: (): IndexData[] => indexCfg.symbols.map((s) => fallbackIndex(normalizeIndexSymbol(s))),
+    placeholderData: (): MarketOverviewItem[] =>
+      indexCfg.symbols.map((s) => ({
+        ...fallbackIndex(normalizeIndexSymbol(s)),
+        assetType: indexCfg.types[normalizeIndexSymbol(s)] ?? 'index',
+      })),
     refetchInterval: isMarketOpen ? 30000 : 60000,
     refetchIntervalInBackground: false,
     staleTime: 10000,
