@@ -9,6 +9,8 @@ import {
   listWatchlistItems,
 } from '../utils/api';
 import type { StockPrice } from '@/types/market';
+import type { MarketRegion } from '@/lib/marketConfig';
+import { filterByMarket } from '@/lib/marketConfig';
 
 export interface WatchlistRow {
   watchlist_item_id: string;
@@ -50,14 +52,14 @@ interface ApiError {
  * Used by both Dashboard and MarketView sidebar.
  * Refactored to use TanStack Query for optimal polling and caching.
  */
-export function useWatchlistData() {
+export function useWatchlistData(market: MarketRegion = 'us') {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [modalOpen, setModalOpen] = useState(false);
 
   const { data = { rows: [], currentWatchlistId: null }, isLoading: loading, refetch: fetchWatchlist } = useQuery<WatchlistQueryData>({
-    queryKey: ['watchlistData'],
+    queryKey: ['watchlistData', market],
     queryFn: async (): Promise<WatchlistQueryData> => {
       const { watchlists } = await listWatchlists() as { watchlists?: Array<{ watchlist_id: string; [key: string]: unknown }> };
       const firstWatchlist = watchlists?.[0];
@@ -86,7 +88,8 @@ export function useWatchlistData() {
         })
         : [];
 
-      return { rows: combined, currentWatchlistId: watchlistId };
+      const filtered = filterByMarket(combined, market);
+      return { rows: filtered, currentWatchlistId: watchlistId };
     },
     refetchInterval: 60000,
     refetchIntervalInBackground: false,
@@ -134,7 +137,7 @@ export function useWatchlistData() {
         }
       }
     },
-    [currentWatchlistId, queryClient, toast]
+    [currentWatchlistId, queryClient, toast, market]
   );
 
   const handleDelete = useCallback(
@@ -153,7 +156,7 @@ export function useWatchlistData() {
         console.error('Delete watchlist item failed:', err?.response?.status, err?.response?.data, err?.message);
       }
     },
-    [currentWatchlistId, queryClient]
+    [currentWatchlistId, queryClient, market]
   );
 
   return {
