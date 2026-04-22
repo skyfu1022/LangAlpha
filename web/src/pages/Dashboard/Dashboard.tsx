@@ -65,8 +65,8 @@ function Dashboard() {
     navigateToPersonalization,
   } = useOnboarding();
 
-  const watchlist = useWatchlistData();
-  const portfolio = usePortfolioData();
+  const watchlist = useWatchlistData(market);
+  const portfolio = usePortfolioData(market);
 
   const portfolioNews = useTickerNews(portfolio.rows, 'portfolio');
   const watchlistNews = useTickerNews(watchlist.rows, 'watchlist');
@@ -102,6 +102,7 @@ function Dashboard() {
     onPortfolioDelete: (id: string) => { setShowWatchlistSheet(false); handleDeletePortfolioItem(id); },
     onPortfolioEdit: (item: PortfolioRow) => { setShowWatchlistSheet(false); portfolio.openEdit(item); },
     marketStatus,
+    market,
   };
 
   return (
