@@ -4,26 +4,7 @@ import { useChatInput } from '../hooks/useChatInput';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { MobileFabChat } from '@/components/ui/mobile-fab-chat';
 import type { MarketRegion } from '@/lib/marketConfig';
-
-const SUGGESTION_CHIPS: Record<MarketRegion, string[]> = {
-  us: [
-    "Summarize Apple's earnings",
-    'Compare TSLA vs BYD',
-    'Predict market volatility',
-    'Analyze my portfolio risk',
-  ],
-  cn: [
-    '分析贵州茅台最新财报',
-    '比较比亚迪与蔚来',
-    '预测A股市场走势',
-    '分析我的持仓风险',
-  ],
-};
-
-const SUGGESTION_PLACEHOLDERS: Record<MarketRegion, string> = {
-  us: 'Ask AI about market trends, specific stocks, or portfolio analysis...',
-  cn: '向 AI 提问市场趋势、个股分析或持仓诊断...',
-};
+import { useTranslation } from 'react-i18next';
 
 /**
  * Floating chat input wrapper for dashboard.
@@ -31,6 +12,7 @@ const SUGGESTION_PLACEHOLDERS: Record<MarketRegion, string> = {
  * On mobile: collapses to a floating logo FAB by default.
  */
 function ChatInputCard({ market = 'us' }: { market?: MarketRegion }) {
+  const { t } = useTranslation();
   const {
     mode,
     setMode,
@@ -45,6 +27,11 @@ function ChatInputCard({ market = 'us' }: { market?: MarketRegion }) {
   const chatInputRef = useRef<ChatInputHandle>(null);
   const isMobile = useIsMobile();
   const [chatExpanded, setChatExpanded] = useState(false);
+  const chipsRaw = t(`dashboard.chatInput.suggestions.${market}`, { returnObjects: true });
+  const suggestionChips = Array.isArray(chipsRaw)
+    ? chipsRaw.filter((chip): chip is string => typeof chip === 'string')
+    : [];
+  const placeholder = t(`dashboard.chatInput.placeholder.${market}`);
 
   const handleMobileSend = (...args: Parameters<typeof handleSend>) => {
     handleSend(...args);
@@ -70,7 +57,7 @@ function ChatInputCard({ market = 'us' }: { market?: MarketRegion }) {
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
             onWorkspaceChange={setSelectedWorkspaceId}
-            placeholder={SUGGESTION_PLACEHOLDERS[market]}
+            placeholder={placeholder}
           />
         </div>
       </MobileFabChat>
@@ -82,7 +69,7 @@ function ChatInputCard({ market = 'us' }: { market?: MarketRegion }) {
       <div className="pointer-events-auto w-full max-w-2xl px-4">
         {/* Suggestion bubbles — above the input, outside focus container */}
         <div className={`dashboard-suggestion-bubbles ${focused ? 'visible' : ''}`}>
-          {SUGGESTION_CHIPS[market].map((label, i) => (
+          {suggestionChips.map((label, i) => (
             <button
               key={label}
               type="button"
@@ -112,7 +99,7 @@ function ChatInputCard({ market = 'us' }: { market?: MarketRegion }) {
             workspaces={workspaces}
             selectedWorkspaceId={selectedWorkspaceId}
             onWorkspaceChange={setSelectedWorkspaceId}
-            placeholder={SUGGESTION_PLACEHOLDERS[market]}
+            placeholder={placeholder}
           />
         </div>
       </div>

@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/v1/news", tags=["News"])
 _cache = NewsCacheService()
 
 _CN_SUFFIXES = ('.SH', '.SZ', '.SS')
+_MARKET_FILTER_MAX_PAGES = 5
 
 
 def _filter_by_market(articles: list[dict], market: str | None) -> list[dict]:
@@ -110,20 +111,39 @@ async def get_news(
     from src.data_client import get_news_data_provider
 
     provider = await get_news_data_provider()
-    data = await provider.get_news(
-        tickers=ticker_list,
-        limit=limit,
-        cursor=cursor,
-        published_after=published_after,
-        published_before=published_before,
-        order=order,
-        sort=sort,
-        user_id=user_id,
-    )
-
-    # Filter by market BEFORE applying limit / returning results
+    fetch_cursor = cursor
     if market:
-        data["results"] = _filter_by_market(data["results"], market)
+        filtered_results: list[dict] = []
+        next_cursor: str | None = fetch_cursor
+        pages = 0
+        while pages < _MARKET_FILTER_MAX_PAGES:
+            data = await provider.get_news(
+                tickers=ticker_list,
+                limit=limit,
+                cursor=next_cursor,
+                published_after=published_after,
+                published_before=published_before,
+                order=order,
+                sort=sort,
+                user_id=user_id,
+            )
+            filtered_results.extend(_filter_by_market(data.get("results", []), market))
+            next_cursor = data.get("next_cursor")
+            pages += 1
+            if not next_cursor or len(filtered_results) >= limit:
+                break
+        data = {"results": filtered_results, "next_cursor": next_cursor}
+    else:
+        data = await provider.get_news(
+            tickers=ticker_list,
+            limit=limit,
+            cursor=fetch_cursor,
+            published_after=published_after,
+            published_before=published_before,
+            order=order,
+            sort=sort,
+            user_id=user_id,
+        )
 
     # Populate cache (stores full articles internally)
     if not cursor:

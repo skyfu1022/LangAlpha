@@ -152,7 +152,8 @@ async def get_earnings_calendar(
     else:
         events = await _fetch_us_earnings(from_date, to_date)
 
-    await _earnings_cache.set(
-        [e.model_dump() for e in events], from_date, to_date, market=market
-    )
+    if events:
+        await _earnings_cache.set(
+            [e.model_dump() for e in events], from_date, to_date, market=market
+        )
     return EarningsCalendarResponse(data=events, count=len(events))

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { MARKET_CONFIG, type MarketRegion, type MarketConfig } from '@/lib/marketConfig';
 import i18n from '@/i18n';
 
 const STORAGE_KEY = 'langalpha-market';
+const LOCALE_STORAGE_KEY = 'locale';
 
 const MARKET_TO_LOCALE: Record<MarketRegion, string> = {
   cn: 'zh-CN',
@@ -21,10 +22,15 @@ export function useMarket() {
   const switchMarket = useCallback((m: MarketRegion) => {
     setMarket(m);
     try { localStorage.setItem(STORAGE_KEY, m); } catch { /* ignore */ }
-    if (i18n.language !== MARKET_TO_LOCALE[m]) {
-      i18n.changeLanguage(MARKET_TO_LOCALE[m]);
-    }
   }, []);
+
+  useEffect(() => {
+    const locale = MARKET_TO_LOCALE[market];
+    try { localStorage.setItem(LOCALE_STORAGE_KEY, locale); } catch { /* ignore */ }
+    if (i18n.language !== locale) {
+      void i18n.changeLanguage(locale);
+    }
+  }, [market]);
 
   const config: MarketConfig = MARKET_CONFIG[market];
 

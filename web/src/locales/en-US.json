@@ -220,7 +220,8 @@
       "justNow": "just now",
       "minutesAgo": "{{count}} min ago",
       "hoursAgo": "{{count}} hr ago",
-      "daysAgo": "{{count}} day ago"
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_other": "{{count}} days ago"
     },
     "brief": {
       "justNow": "just now",
@@ -275,6 +276,26 @@
     "indexMovement": {
       "etfBadge": "ETF",
       "noChartData": "No chart data"
+    },
+    "chatInput": {
+      "suggestions": {
+        "us": [
+          "Summarize Apple's earnings",
+          "Compare TSLA vs BYD",
+          "Predict market volatility",
+          "Analyze my portfolio risk"
+        ],
+        "cn": [
+          "Summarize Kweichow Moutai's latest earnings",
+          "Compare BYD vs NIO",
+          "Predict China A-share market trends",
+          "Analyze my China market portfolio risk"
+        ]
+      },
+      "placeholder": {
+        "us": "Ask AI about market trends, specific stocks, or portfolio analysis...",
+        "cn": "Ask AI about China market trends, A-share stocks, or portfolio analysis..."
+      }
     }
   },
   "workspace": {

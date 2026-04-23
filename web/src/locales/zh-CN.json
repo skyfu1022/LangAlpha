@@ -220,7 +220,8 @@
       "justNow": "刚刚",
       "minutesAgo": "{{count}}分钟前",
       "hoursAgo": "{{count}}小时前",
-      "daysAgo": "{{count}}天前"
+      "daysAgo_one": "{{count}}天前",
+      "daysAgo_other": "{{count}}天前"
     },
     "brief": {
       "justNow": "刚刚",
@@ -275,6 +276,26 @@
     "indexMovement": {
       "etfBadge": "ETF",
       "noChartData": "暂无图表数据"
+    },
+    "chatInput": {
+      "suggestions": {
+        "us": [
+          "分析苹果最新财报",
+          "比较特斯拉与比亚迪",
+          "预测美股市场波动",
+          "分析我的美股持仓风险"
+        ],
+        "cn": [
+          "分析贵州茅台最新财报",
+          "比较比亚迪与蔚来",
+          "预测A股市场走势",
+          "分析我的持仓风险"
+        ]
+      },
+      "placeholder": {
+        "us": "向 AI 提问美股市场趋势、个股分析或持仓诊断...",
+        "cn": "向 AI 提问市场趋势、个股分析或持仓诊断..."
+      }
     }
   },
   "workspace": {
