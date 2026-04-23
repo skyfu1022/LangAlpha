@@ -5,6 +5,7 @@ import {
   addPortfolioHolding,
   deletePortfolioHolding,
   getPortfolio,
+  getStockCompanyNames,
   getStockPrices,
   updatePortfolioHolding,
 } from '../utils/api';
@@ -16,6 +17,7 @@ import { filterByMarket } from '@/lib/marketConfig';
 export interface PortfolioRow {
   user_portfolio_id?: string | number;
   symbol: string;
+  name?: string;
   quantity?: number | null;
   average_cost?: number | null;
   notes?: string;
@@ -82,6 +84,8 @@ export function usePortfolioData(market: MarketRegion = 'us') {
       const prices: StockPrice[] = symbols.length > 0 ? await getStockPrices(symbols) : [];
       const bySym: Record<string, StockPrice> = Object.fromEntries((prices || []).map((p) => [p.symbol, p]));
 
+      const nameMap: Record<string, string> = symbols.length > 0 ? await getStockCompanyNames(symbols) : {};
+
       if (holdings?.length) {
         const combined: PortfolioRow[] = holdings.map((h) => {
           const sym = String(h.symbol || '').trim().toUpperCase();
@@ -94,6 +98,7 @@ export function usePortfolioData(market: MarketRegion = 'us') {
           return {
             user_portfolio_id: h.user_portfolio_id,
             symbol: sym,
+            name: nameMap[sym] || undefined,
             quantity: q,
             average_cost: ac,
             notes: h.notes ?? '',

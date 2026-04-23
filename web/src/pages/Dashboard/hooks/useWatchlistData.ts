@@ -4,6 +4,7 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   addWatchlistItem,
   deleteWatchlistItem,
+  getStockCompanyNames,
   getStockPrices,
   listWatchlists,
   listWatchlistItems,
@@ -15,6 +16,7 @@ import { filterByMarket } from '@/lib/marketConfig';
 export interface WatchlistRow {
   watchlist_item_id: string;
   symbol: string;
+  name?: string;
   price: number;
   change: number;
   changePercent: number;
@@ -70,6 +72,8 @@ export function useWatchlistData(market: MarketRegion = 'us') {
       const prices: StockPrice[] = symbols.length > 0 ? await getStockPrices(symbols) : [];
       const bySym: Record<string, StockPrice> = Object.fromEntries((prices || []).map((p) => [p.symbol, p]));
 
+      const nameMap: Record<string, string> = symbols.length > 0 ? await getStockCompanyNames(symbols) : {};
+
       const combined: WatchlistRow[] = items?.length
         ? items.map((i) => {
           const sym = String(i.symbol || '').trim().toUpperCase();
@@ -77,6 +81,7 @@ export function useWatchlistData(market: MarketRegion = 'us') {
           return {
             watchlist_item_id: i.watchlist_item_id,
             symbol: sym,
+            name: nameMap[sym] || undefined,
             price: p.price ?? 0,
             change: p.change ?? 0,
             changePercent: p.changePercent ?? 0,

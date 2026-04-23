@@ -12,6 +12,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 interface WatchlistRow {
   watchlist_item_id?: string | number;
   symbol: string;
+  name?: string;
   price: number;
   change: number;
   changePercent: number;
@@ -25,6 +26,7 @@ interface WatchlistRow {
 interface PortfolioRow {
   user_portfolio_id?: string | number;
   symbol: string;
+  name?: string;
   price: number;
   quantity?: number | null;
   average_cost?: number | null;
@@ -79,9 +81,11 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMark
     >
       <div>
         <div className="font-bold text-sm" style={{ color: 'var(--color-text-primary)' }}>
-          {item.symbol}
+          {item.name || item.symbol}
         </div>
-        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{t('dashboard.watchlist.stock')}</div>
+        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+          {item.name ? item.symbol : t('dashboard.watchlist.stock')}
+        </div>
       </div>
 
       <div className="flex items-center gap-4">
@@ -199,10 +203,10 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
     >
       <div>
         <div className="font-bold text-sm" style={{ color: 'var(--color-text-primary)' }}>
-          {item.symbol}
+          {item.name || item.symbol}
         </div>
         <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-          {valuesHidden ? t('dashboard.watchlist.hiddenShares') : item.quantity != null ? `${Number(item.quantity).toLocaleString()} ${t('dashboard.watchlist.shares', { count: item.quantity })}` : ''}
+          {item.name ? `${item.symbol} · ${valuesHidden ? t('dashboard.watchlist.hiddenShares') : item.quantity != null ? `${Number(item.quantity).toLocaleString()} ${t('dashboard.watchlist.shares', { count: item.quantity })}` : ''}` : (valuesHidden ? t('dashboard.watchlist.hiddenShares') : item.quantity != null ? `${Number(item.quantity).toLocaleString()} ${t('dashboard.watchlist.shares', { count: item.quantity })}` : '')}
         </div>
       </div>
 

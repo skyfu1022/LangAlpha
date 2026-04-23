@@ -296,6 +296,21 @@
         "us": "Ask AI about market trends, specific stocks, or portfolio analysis...",
         "cn": "Ask AI about China market trends, A-share stocks, or portfolio analysis..."
       }
+    },
+    "news": {
+      "tabMarket": "Market Pulse",
+      "tabPortfolio": "Your Portfolio",
+      "tabWatchlist": "Your Watchlist",
+      "rangeAll": "All",
+      "range1h": "1H",
+      "range6h": "6H",
+      "range24h": "24H",
+      "range7d": "7D",
+      "tickerPlaceholder": "Ticker...",
+      "emptyFilters": "No news matching your filters",
+      "emptyMarket": "No market news available",
+      "emptyPortfolio": "Add stocks to your portfolio to see relevant news here",
+      "emptyWatchlist": "Add stocks to your watchlist to see relevant news here"
     }
   },
   "workspace": {

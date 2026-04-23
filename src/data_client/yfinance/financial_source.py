@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 _ET = ZoneInfo("America/New_York")
 
 
+def _cn_symbol(symbol: str) -> str:
+    """Convert A-share .SH suffix to yfinance .SS format."""
+    if "." in symbol:
+        base, suffix = symbol.rsplit(".", 1)
+        if suffix.upper() == "SH":
+            return f"{base}.SS"
+    return symbol
+
+
 def _clean_value(val: Any) -> Any:
     """Convert NaN / Timestamp / numpy scalars / pandas NA to JSON-safe values."""
     if val is None:
@@ -520,40 +529,40 @@ class YFinanceFinancialSource:
     """FinancialDataSource backed by Yahoo Finance (yfinance library)."""
 
     async def get_company_profile(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_profile, symbol)
+        return await asyncio.to_thread(_get_profile, _cn_symbol(symbol))
 
     async def get_realtime_quote(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_realtime_quote, symbol)
+        return await asyncio.to_thread(_get_realtime_quote, _cn_symbol(symbol))
 
     async def get_income_statements(
         self, symbol: str, period: str = "quarter", limit: int = 8
     ) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_income_statements, symbol, period, limit)
+        return await asyncio.to_thread(_get_income_statements, _cn_symbol(symbol), period, limit)
 
     async def get_cash_flows(
         self, symbol: str, period: str = "quarter", limit: int = 8
     ) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_cash_flows, symbol, period, limit)
+        return await asyncio.to_thread(_get_cash_flows, _cn_symbol(symbol), period, limit)
 
     async def get_key_metrics(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_key_metrics, symbol)
+        return await asyncio.to_thread(_get_key_metrics, _cn_symbol(symbol))
 
     async def get_financial_ratios(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_financial_ratios, symbol)
+        return await asyncio.to_thread(_get_financial_ratios, _cn_symbol(symbol))
 
     async def get_price_performance(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_price_performance, symbol)
+        return await asyncio.to_thread(_get_price_performance, _cn_symbol(symbol))
 
     async def get_analyst_price_targets(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_analyst_price_targets, symbol)
+        return await asyncio.to_thread(_get_analyst_price_targets, _cn_symbol(symbol))
 
     async def get_analyst_ratings(self, symbol: str) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_analyst_ratings, symbol)
+        return await asyncio.to_thread(_get_analyst_ratings, _cn_symbol(symbol))
 
     async def get_earnings_history(
         self, symbol: str, limit: int = 10
     ) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(_get_earnings_history, symbol, limit)
+        return await asyncio.to_thread(_get_earnings_history, _cn_symbol(symbol), limit)
 
     async def get_revenue_by_segment(
         self, symbol: str, segment_type: str = "product", **kwargs: Any

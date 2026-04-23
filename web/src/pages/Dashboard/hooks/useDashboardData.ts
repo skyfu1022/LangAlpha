@@ -79,7 +79,7 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
   const { data: indices, isLoading: indicesLoading } = useQuery<MarketOverviewItem[]>({
     queryKey: ['dashboard', 'indices', market, indexCfg.symbols],
     queryFn: async () => {
-      const { indices: next } = await getIndices(indexCfg.symbols);
+      const { indices: next } = await getIndices(indexCfg.symbols, {}, indexCfg.types);
       return next.map((item) => {
         const norm = normalizeIndexSymbol(item.symbol);
         return {

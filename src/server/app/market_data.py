@@ -54,6 +54,13 @@ def _reject_index_symbol_for_stock_fundamentals(symbol: str) -> None:
         )
 
 
+def _is_cn_etf(symbol: str) -> bool:
+    """Heuristic: A-share ETFs start with 51/15/56 and have CN exchange suffix."""
+    base = symbol.split(".", 1)[0] if "." in symbol else symbol
+    suffix = symbol.rsplit(".", 1)[-1].upper() if "." in symbol else ""
+    return base[:2] in ("51", "15", "56") and suffix in ("SH", "SZ", "SS")
+
+
 def _convert_data_points(raw_data: list) -> list[IntradayDataPoint]:
     """Convert raw OHLCV data to IntradayDataPoint models."""
     return [
@@ -488,6 +495,10 @@ async def get_company_overview(symbol: str, user_id: CurrentUserId) -> CompanyOv
     symbol_upper = symbol.strip().upper()
     _reject_index_symbol_for_stock_fundamentals(symbol_upper)
     try:
+        # ETFs don't have company profiles or analyst data
+        if _is_cn_etf(symbol_upper):
+            return CompanyOverviewResponse(symbol=symbol_upper)
+
         from src.utils.cache.redis_cache import get_cache_client
 
         cache = get_cache_client()
@@ -545,6 +556,10 @@ async def get_analyst_data(
 
     symbol_upper = symbol.strip().upper()
     _reject_index_symbol_for_stock_fundamentals(symbol_upper)
+
+    # ETFs don't have analyst coverage
+    if _is_cn_etf(symbol_upper):
+        return AnalystDataResponse(symbol=symbol_upper, priceTargets=None, grades=[])
 
     try:
         import asyncio
@@ -783,4 +798,86 @@ async def get_market_status(user_id: CurrentUserId) -> MarketStatusResponse:
         raise
     except Exception as e:
         logger.error(f"Error fetching market status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+_NAMES_CACHE_TTL = 86400  # 24 hours — stock names rarely change
+
+
+def _symbol_is_cn(symbol: str) -> bool:
+    s = symbol.upper()
+    return s.endswith(".SZ") or s.endswith(".SH") or s.endswith(".SS")
+
+
+@router.post(
+    "/stocks/names",
+    summary="Resolve stock symbols to company names",
+    description="Returns a mapping of symbol → company name for the given symbols. "
+    "CN stocks use TuShare, US stocks use FMP.",
+)
+async def get_stock_names(
+    body: dict,
+    user_id: CurrentUserId,
+) -> dict:
+    symbols: list[str] = body.get("symbols", []) or []
+    if not symbols:
+        return {"names": {}}
+
+    try:
+        from src.utils.cache.redis_cache import get_cache_client
+
+        cache = get_cache_client()
+        cache_key = f"stocks:names:{','.join(sorted(set(s.upper() for s in symbols)))}"
+
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return {"names": cached}
+
+        cn_syms = [s for s in symbols if _symbol_is_cn(s)]
+        us_syms = [s for s in symbols if not _symbol_is_cn(s)]
+
+        names: dict[str, str] = {}
+
+        if cn_syms:
+            try:
+                from src.data_client.tushare.client import TuShareClient
+
+                client = TuShareClient()
+                try:
+                    for sym in cn_syms:
+                        ts_code = sym.replace(".SS", ".SH")
+                        rows = await client.stock_basic(ts_code=ts_code)
+                        if rows and rows[0].get("name"):
+                            names[sym.upper()] = rows[0]["name"]
+                finally:
+                    await client.close()
+            except Exception as e:
+                logger.warning("tushare.stock_names.failed: %s", e)
+
+        if us_syms:
+            try:
+                from src.data_client.fmp.fmp_client import FMPClient
+
+                fmp = FMPClient()
+                try:
+                    results = await fmp.get_batch_profiles(us_syms)
+                    for item in results or []:
+                        sym = (item.get("symbol") or "").upper()
+                        name = item.get("companyName") or item.get("name") or ""
+                        if sym and name:
+                            names[sym] = name
+                finally:
+                    await fmp.close()
+            except Exception as e:
+                logger.warning("fmp.stock_names.failed: %s", e)
+
+        if names:
+            await cache.set(cache_key, names, ttl=_NAMES_CACHE_TTL)
+
+        return {"names": names}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error resolving stock names: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

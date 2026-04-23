@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TrendingUp, Clock, Briefcase, Eye, Search, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 interface NewsItem {
@@ -20,27 +21,27 @@ type DateRangeKey = 'all' | '1h' | '6h' | '24h' | '7d';
 
 interface TabDef {
   key: TabKey;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ size?: number }>;
 }
 
 interface DateRangeDef {
   key: DateRangeKey;
-  label: string;
+  labelKey: string;
 }
 
 const TABS: TabDef[] = [
-  { key: 'market', label: 'Market Pulse', icon: TrendingUp },
-  { key: 'portfolio', label: 'Your Portfolio', icon: Briefcase },
-  { key: 'watchlist', label: 'Your Watchlist', icon: Eye },
+  { key: 'market', labelKey: 'dashboard.news.tabMarket', icon: TrendingUp },
+  { key: 'portfolio', labelKey: 'dashboard.news.tabPortfolio', icon: Briefcase },
+  { key: 'watchlist', labelKey: 'dashboard.news.tabWatchlist', icon: Eye },
 ];
 
 const DATE_RANGES: DateRangeDef[] = [
-  { key: 'all', label: 'All' },
-  { key: '1h', label: '1H' },
-  { key: '6h', label: '6H' },
-  { key: '24h', label: '24H' },
-  { key: '7d', label: '7D' },
+  { key: 'all', labelKey: 'dashboard.news.rangeAll' },
+  { key: '1h', labelKey: 'dashboard.news.range1h' },
+  { key: '6h', labelKey: 'dashboard.news.range6h' },
+  { key: '24h', labelKey: 'dashboard.news.range24h' },
+  { key: '7d', labelKey: 'dashboard.news.range7d' },
 ];
 
 function parseRelativeTime(timeStr: string | undefined | null): number | null {
@@ -201,26 +202,28 @@ interface EmptyStateProps {
 }
 
 function EmptyState({ tab, hasFilters }: EmptyStateProps) {
+  const { t } = useTranslation();
+
   if (hasFilters) {
     return (
       <div className="flex items-center justify-center py-16">
         <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-          No news matching your filters
+          {t('dashboard.news.emptyFilters')}
         </p>
       </div>
     );
   }
 
-  const messages: Record<TabKey, string> = {
-    market: 'No market news available',
-    portfolio: 'Add stocks to your portfolio to see relevant news here',
-    watchlist: 'Add stocks to your watchlist to see relevant news here',
+  const messageKeys: Record<TabKey, string> = {
+    market: 'dashboard.news.emptyMarket',
+    portfolio: 'dashboard.news.emptyPortfolio',
+    watchlist: 'dashboard.news.emptyWatchlist',
   };
 
   return (
     <div className="flex items-center justify-center py-16">
       <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-        {messages[tab] || 'No news available'}
+        {t(messageKeys[tab])}
       </p>
     </div>
   );
@@ -245,6 +248,7 @@ function NewsFeedCard({
   watchlistLoading = false,
   onNewsClick,
 }: NewsFeedCardProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>('market');
   const [tickerFilter, setTickerFilter] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeKey>('all');
@@ -266,7 +270,7 @@ function NewsFeedCard({
     const query = tickerFilter.trim().toUpperCase();
     if (query) {
       result = result.filter((item) =>
-        item.tickers?.some((t) => t.toUpperCase().includes(query))
+        item.tickers?.some((tk) => tk.toUpperCase().includes(query))
       );
     }
 
@@ -286,7 +290,7 @@ function NewsFeedCard({
   const _availableTickers = useMemo(() => {
     const set = new Set<string>();
     for (const item of items) {
-      if (item.tickers) item.tickers.forEach((t) => set.add(t));
+      if (item.tickers) item.tickers.forEach((tk) => set.add(tk));
     }
     return [...set].sort();
   }, [items]);
@@ -320,7 +324,7 @@ function NewsFeedCard({
                 }}
               >
                 <Icon size={13} />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}
@@ -341,7 +345,7 @@ function NewsFeedCard({
             <Search size={12} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
             <input
               type="text"
-              placeholder="Ticker..."
+              placeholder={t('dashboard.news.tickerPlaceholder')}
               value={tickerFilter}
               onChange={(e) => setTickerFilter(e.target.value)}
               className="flex-1 text-[11px] bg-transparent border-none outline-none min-w-0"
@@ -372,7 +376,7 @@ function NewsFeedCard({
                     color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                   }}
                 >
-                  {dr.label}
+                  {t(dr.labelKey)}
                 </button>
               );
             })}

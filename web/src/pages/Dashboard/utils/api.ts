@@ -3,7 +3,7 @@
  * All backend endpoints used by the Dashboard page
  */
 import { api } from '@/api/client';
-import { utcMsToETDate, utcMsToETTime } from '@/lib/utils';
+import { utcMsToETDate } from '@/lib/utils';
 import * as portfolioApi from './portfolio';
 import * as watchlistApi from './watchlist';
 import * as watchlistItemsApi from './watchlistItems';
@@ -147,53 +147,16 @@ function fallbackIndex(norm: string): IndexData {
 }
 
 /**
- * GET /api/v1/market-data/intraday/indexes/:symbol (Index.yml)
- * Path uses normalized symbol (e.g. GSPC). Query: interval, from, to optional.
- * Returns the most recent data point for the index.
+ * Fetch recent daily OHLCV for an index symbol via /daily/indexes/.
+ * Returns sparkline data (last 30 trading days) plus latest price/change.
  */
 export async function getIndex(symbol: string, _opts: Record<string, unknown> = {}): Promise<IndexData> {
   const norm = normalizeIndexSymbol(String(symbol).trim());
   try {
-    const { data } = await api.get(`/api/v1/market-data/intraday/indexes/${encodeURIComponent(norm)}`);
-
-    const pts: IntradayPoint[] = data?.data ?? [];
-
-    if (!Array.isArray(pts) || !pts.length) {
-      throw new Error(`No intraday data for ${norm}`);
-    }
-
-    // Sort ascending by time (Unix ms)
-    const sorted = [...pts].sort((a: IntradayPoint, b: IntradayPoint) => a.time - b.time);
-
-    // Isolate the most recent trading day, regular hours only (9:30–16:00)
-    const latestDate = utcMsToETDate(sorted[sorted.length - 1].time);
-    const todayPoints = sorted.filter((p: IntradayPoint) => {
-      if (utcMsToETDate(p.time) !== latestDate) return false;
-      const t = utcMsToETTime(p.time);
-      return t >= '09:30' && t <= '16:00';
+    const { data } = await api.get(`/api/v1/market-data/daily/indexes/${encodeURIComponent(norm)}`, {
+      params: { interval: '1d' },
     });
-
-    const oldest = todayPoints[0];
-    const mostRecent = todayPoints[todayPoints.length - 1];
-
-    const open = Number(oldest?.open ?? 0);
-    const close = Number(mostRecent?.close ?? 0);
-    const change = close - open;
-    const changePercent = open ? (change / open) * 100 : 0;
-
-    const result: IndexData = {
-      symbol: norm,
-      name: INDEX_NAMES[norm] ?? norm,
-      price: Math.round(close * 100) / 100,
-      change: Math.round(change * 100) / 100,
-      changePercent: Math.round(changePercent * 100) / 100,
-      isPositive: change >= 0,
-      sparklineData: todayPoints
-        .filter((p: IntradayPoint) => Number(p.close) > 0)
-        .map((p: IntradayPoint) => ({ time: utcMsToETTime(p.time), val: Number(p.close) })),
-    };
-
-    return result;
+    return _parseDailyResponse(norm, data);
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };
     console.error(`[API] getIndex - ${norm}: Error:`, err?.message);
@@ -203,18 +166,79 @@ export async function getIndex(symbol: string, _opts: Record<string, unknown> = 
 }
 
 /**
- * Fetches indices data: snapshot batch for price/change, intraday for sparklines.
+ * Fetch recent daily OHLCV for a stock/ETF symbol via /daily/stocks/.
+ * Same return shape as getIndex but uses the stocks endpoint.
+ */
+export async function getStockIntraday(symbol: string, _opts: Record<string, unknown> = {}): Promise<IndexData> {
+  const norm = String(symbol).trim().toUpperCase();
+  try {
+    const { data } = await api.get(`/api/v1/market-data/daily/stocks/${encodeURIComponent(norm)}`, {
+      params: { interval: '1d' },
+    });
+    return _parseDailyResponse(norm, data);
+  } catch (e: unknown) {
+    const err = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };
+    console.error(`[API] getStockIntraday - ${norm}: Error:`, err?.message);
+    const msg = err.response?.data?.detail ?? err.message;
+    throw new Error(typeof msg === 'string' ? msg : String(msg));
+  }
+}
+
+/** Parse daily OHLCV response → IndexData with sparkline from recent closes. */
+function _parseDailyResponse(norm: string, resp: { data?: IntradayPoint[] }): IndexData {
+  const pts: IntradayPoint[] = resp?.data ?? [];
+
+  if (!Array.isArray(pts) || !pts.length) {
+    throw new Error(`No daily data for ${norm}`);
+  }
+
+  const sorted = [...pts].sort((a: IntradayPoint, b: IntradayPoint) => a.time - b.time);
+
+  // Use last 30 bars for sparkline, latest two bars for change
+  const recent = sorted.slice(-30);
+  const latest = sorted[sorted.length - 1];
+  const prev = sorted.length >= 2 ? sorted[sorted.length - 2] : latest;
+
+  const price = Number(latest.close ?? 0);
+  const prevClose = Number(prev.close ?? 0);
+  const change = price - prevClose;
+  const changePercent = prevClose ? (change / prevClose) * 100 : 0;
+
+  return {
+    symbol: norm,
+    name: INDEX_NAMES[norm] ?? norm,
+    price: Math.round(price * 100) / 100,
+    change: Math.round(change * 100) / 100,
+    changePercent: Math.round(changePercent * 100) / 100,
+    isPositive: change >= 0,
+    sparklineData: recent
+      .filter((p: IntradayPoint) => Number(p.close) > 0)
+      .map((p: IntradayPoint) => ({ time: utcMsToETDate(p.time), val: Number(p.close) })),
+  };
+}
+
+/**
+ * Fetches indices + ETFs data: snapshot batch for price/change, intraday for sparklines.
+ * ETF symbols use stock endpoints; index symbols use index endpoints.
  * Returns { indices, failedCount }.
  */
-export async function getIndices(symbols: string[] = INDEX_SYMBOLS, _opts: Record<string, unknown> = {}): Promise<IndicesResult> {
+export async function getIndices(
+  symbols: string[] = INDEX_SYMBOLS,
+  _opts: Record<string, unknown> = {},
+  types: Record<string, 'index' | 'etf'> = {},
+): Promise<IndicesResult> {
   const list = symbols.map((s: string) => normalizeIndexSymbol(String(s).trim()));
+  const indexSyms = list.filter((s) => types[s] !== 'etf');
+  const etfSyms = list.filter((s) => types[s] === 'etf');
 
-  // Fetch snapshot (price/change) and intraday (sparklines) in parallel
-  const [snapshots, sparklineResults] = await Promise.all([
-    getSnapshotIndexes(list),
+  // Fetch snapshots and intraday sparklines in parallel, split by type
+  const [indexSnapshots, etfSnapshots, sparklineResults] = await Promise.all([
+    indexSyms.length ? getSnapshotIndexes(indexSyms) : Promise.resolve({}),
+    etfSyms.length ? getSnapshotStocks(etfSyms) : Promise.resolve({}),
     Promise.all(list.map(async (norm: string) => {
+      const isEtf = types[norm] === 'etf';
       try {
-        const result = await getIndex(norm);
+        const result = isEtf ? await getStockIntraday(norm) : await getIndex(norm);
         return { symbol: norm, sparklineData: result.sparklineData };
       } catch {
         return { symbol: norm, sparklineData: [] as SparklinePoint[] };
@@ -223,10 +247,15 @@ export async function getIndices(symbols: string[] = INDEX_SYMBOLS, _opts: Recor
   ]);
 
   const sparklineMap: Record<string, SparklinePoint[]> = Object.fromEntries(sparklineResults.map((r) => [r.symbol, r.sparklineData]));
-  const snapshotList: SnapshotEntry[] = snapshots?.snapshots || snapshots?.results || snapshots?.data || [];
-  const snapshotMap: Record<string, SnapshotEntry> = Array.isArray(snapshotList)
-    ? Object.fromEntries(snapshotList.map((s: SnapshotEntry) => [normalizeIndexSymbol(s.symbol), s]))
-    : {};
+
+  // Merge snapshot maps from both endpoints
+  const buildSnapshotMap = (resp: SnapshotResponse): Record<string, SnapshotEntry> => {
+    const items: SnapshotEntry[] = resp?.snapshots || resp?.results || resp?.data || [];
+    return Array.isArray(items)
+      ? Object.fromEntries(items.map((s: SnapshotEntry) => [normalizeIndexSymbol(s.symbol), s]))
+      : {};
+  };
+  const snapshotMap = { ...buildSnapshotMap(indexSnapshots), ...buildSnapshotMap(etfSnapshots) };
 
   let failedCount = 0;
   const indices: IndexData[] = list.map((norm: string) => {

@@ -32,8 +32,17 @@ class TuShareDataSource:
 
     _SUPPORTED_INTERVALS = frozenset(_INTERVAL_MAP.keys())
 
+    # A-share ETF code prefixes: 51xxxx.SH (SSE), 15xxxx.SZ (SZSE), 56xxxx.SH (SSE)
+    _ETF_PREFIXES = ("51", "15", "56")
+
     def __init__(self, client: TuShareClient | None = None):
         self._client = client or TuShareClient()
+
+    @classmethod
+    def _is_etf(cls, ts_code: str) -> bool:
+        """Heuristic: A-share ETFs start with 51/15/56 and have exchange suffix."""
+        base = ts_code.split(".", 1)[0] if "." in ts_code else ts_code
+        return base[:2] in cls._ETF_PREFIXES
 
     @staticmethod
     def _normalize_daily(row: dict[str, Any]) -> dict[str, Any]:
@@ -106,7 +115,8 @@ class TuShareDataSource:
         start = from_date.replace("-", "") if from_date else None
         end = to_date.replace("-", "") if to_date else None
 
-        if is_index:
+        # ETFs are not true indices — use stock endpoints even when is_index=True
+        if is_index and not self._is_etf(ts_code):
             data = await self._client.index_mins(
                 ts_code=ts_code,
                 freq=_INTERVAL_MAP[interval],
@@ -134,8 +144,14 @@ class TuShareDataSource:
         start = from_date.replace("-", "") if from_date else None
         end = to_date.replace("-", "") if to_date else None
 
-        if is_index:
+        if is_index and not self._is_etf(ts_code):
             data = await self._client.index_daily(
+                ts_code=ts_code,
+                start_date=start,
+                end_date=end,
+            )
+        elif self._is_etf(ts_code):
+            data = await self._client.fund_daily(
                 ts_code=ts_code,
                 start_date=start,
                 end_date=end,

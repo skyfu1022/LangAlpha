@@ -18,6 +18,27 @@ logger = logging.getLogger(__name__)
 
 _ET = ZoneInfo("America/New_York")
 
+
+def _to_yfinance_symbol(symbol: str, is_index: bool) -> str:
+    """Convert a symbol to yfinance format.
+
+    - A-share symbols (.SH/.SZ/.SS): convert .SH → .SS, never add ^ prefix
+    - US/other indices: add ^ prefix if is_index and not already present
+    """
+    if "." in symbol:
+        base, suffix = symbol.rsplit(".", 1)
+        upper = suffix.upper()
+        if upper == "SH":
+            # Shanghai exchange: yfinance uses .SS
+            return f"{base}.SS"
+        if upper in ("SZ", "SS"):
+            # Shenzhen already uses .SZ in yfinance
+            return symbol
+    # Non-A-share: apply ^ prefix for indices
+    if is_index and not symbol.startswith("^"):
+        return f"^{symbol}"
+    return symbol
+
 # Map data_client interval names → yfinance interval strings.
 # None means unsupported — raises ValueError so the chain can skip this source.
 _INTERVAL_MAP: dict[str, str | None] = {
@@ -128,7 +149,7 @@ class YFinanceDataSource:
             raise ValueError(
                 f"Interval '{interval}' is not supported by yfinance"
             )
-        api_symbol = f"^{symbol}" if is_index and not symbol.startswith("^") else symbol
+        api_symbol = _to_yfinance_symbol(symbol, is_index)
         return await asyncio.to_thread(
             _fetch_history, api_symbol, yf_interval, from_date, to_date
         )
@@ -141,7 +162,7 @@ class YFinanceDataSource:
         is_index: bool = False,
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        api_symbol = f"^{symbol}" if is_index and not symbol.startswith("^") else symbol
+        api_symbol = _to_yfinance_symbol(symbol, is_index)
         return await asyncio.to_thread(
             _fetch_history, api_symbol, "1d", from_date, to_date
         )
@@ -152,10 +173,7 @@ class YFinanceDataSource:
         asset_type: str = "stocks",
         user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        prepared = [
-            (f"^{s}" if asset_type == "indices" and not s.startswith("^") else s)
-            for s in symbols
-        ]
+        prepared = [_to_yfinance_symbol(s, asset_type == "indices") for s in symbols]
         if not prepared:
             return []
         results = await asyncio.gather(

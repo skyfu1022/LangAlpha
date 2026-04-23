@@ -44,19 +44,51 @@ def _default_dates(
 async def _fetch_cn_earnings(
     from_date: str, to_date: str
 ) -> list[EarningsEvent]:
-    """通过 Tushare 获取 A 股财报日期。"""
+    """通过 Tushare 获取 A 股财报日期。
+
+    TuShare disclosure_date 接口按财报周期查询，不是日期范围。
+    策略：查出当前和相邻季度的财报披露计划，再按 ann_date 筛选。
+    """
+    # 确定需要查询的财报周期（季度末日期）
+    from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+    periods = set()
+    for offset in (-1, 0, 1, 2, 3):
+        d = from_dt + timedelta(days=offset * 90)
+        # 季度末：3/31, 6/30, 9/30, 12/31
+        quarter_end_month = ((d.month - 1) // 3 + 1) * 3
+        if quarter_end_month > 12:
+            year = d.year + 1
+            quarter_end_month = 3
+        else:
+            year = d.year
+        periods.add(f"{year}{quarter_end_month:02d}30" if quarter_end_month in (6, 9) else f"{year}{quarter_end_month:02d}31")
+
     try:
         client = await get_tushare_client()
-        raw = await client.get_disclosure_dates(from_date, to_date)
+        all_raw: list[dict] = []
+        for period in periods:
+            try:
+                batch = await client.get_disclosure_dates(period=period)
+                if batch:
+                    all_raw.extend(batch)
+            except Exception as e:
+                logger.warning("tushare.disclosure_date.period=%s error: %s", period, e)
     except Exception as e:
         logger.error("tushare.earnings.error: %s", e)
         return []
 
+    # 按日期范围筛选 ann_date / actual_date
+    from_yyyymmdd = from_date.replace("-", "")
+    to_yyyymmdd = to_date.replace("-", "")
+
     events: list[EarningsEvent] = []
-    for r in raw:
+    for r in all_raw:
         ts_code = r.get("ts_code", "")
         ann_date = r.get("ann_date") or r.get("actual_date", "")
         if not ts_code or not ann_date:
+            continue
+        # 筛选：公告日期在范围内
+        if ann_date < from_yyyymmdd or ann_date > to_yyyymmdd:
             continue
         if len(ann_date) == 8:
             formatted = f"{ann_date[:4]}-{ann_date[4:6]}-{ann_date[6:8]}"

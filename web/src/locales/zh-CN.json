@@ -296,6 +296,21 @@
         "us": "向 AI 提问美股市场趋势、个股分析或持仓诊断...",
         "cn": "向 AI 提问市场趋势、个股分析或持仓诊断..."
       }
+    },
+    "news": {
+      "tabMarket": "市场动态",
+      "tabPortfolio": "持仓资讯",
+      "tabWatchlist": "自选资讯",
+      "rangeAll": "全部",
+      "range1h": "1H",
+      "range6h": "6H",
+      "range24h": "24H",
+      "range7d": "7D",
+      "tickerPlaceholder": "代码...",
+      "emptyFilters": "没有匹配的新闻",
+      "emptyMarket": "暂无市场新闻",
+      "emptyPortfolio": "添加持仓后可查看相关新闻",
+      "emptyWatchlist": "添加自选后可查看相关新闻"
     }
   },
   "workspace": {

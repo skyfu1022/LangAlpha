@@ -81,21 +81,26 @@ class TuShareClient:
 
     async def get_disclosure_dates(
         self,
-        start_date: str,
-        end_date: str,
+        period: str | None = None,
+        ts_code: str | None = None,
     ) -> list[dict[str, Any]]:
-        """查询财报披露日期。
+        """查询财报披露计划日期。
 
-        Args:
-            start_date: 开始日期，格式 YYYYMMDD 或 YYYY-MM-DD
-            end_date: 结束日期，格式 YYYYMMDD 或 YYYY-MM-DD
+        TuShare disclosure_date 接口参数说明：
+        - period: 财报周期，如 "20231231"(年报) "20230630"(中报) "20230930"(三季报)
+        - ts_code: 股票代码
+
+        不传参数则返回所有已披露的财报计划。
         """
-        s = start_date.replace("-", "")
-        e = end_date.replace("-", "")
+        params: dict[str, Any] = {}
+        if ts_code:
+            params["ts_code"] = ts_code
+        if period:
+            params["end_date"] = period.replace("-", "")
         return await self.query_dataframe(
             api_name="disclosure_date",
-            params={"start_date": s, "end_date": e},
-            fields="ts_code,ann_date,end_date,report_type,actual_date",
+            params=params or None,
+            fields="ts_code,ann_date,end_date,pre_date,actual_date",
         )
 
     # ------------------------------------------------------------------
@@ -114,6 +119,19 @@ class TuShareClient:
         if end_date:
             params["end_date"] = end_date
         return await self.query_dataframe("daily", params)
+
+    async def fund_daily(
+        self,
+        ts_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"ts_code": ts_code}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return await self.query_dataframe("fund_daily", params)
 
     async def index_daily(
         self,
@@ -140,7 +158,7 @@ class TuShareClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
-        return await self.query_dataframe("index_mins", params)
+        return await self.query_dataframe("idx_mins", params)
 
     async def stk_mins(
         self,
