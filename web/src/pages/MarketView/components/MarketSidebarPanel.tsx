@@ -10,6 +10,7 @@ import ConfirmDialog from '../../Dashboard/components/ConfirmDialog';
 import { getExtendedHoursInfo } from '@/lib/marketUtils';
 import { EXT_COLOR_PRE, EXT_COLOR_POST } from '../utils/chartConstants';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useMarket } from '@/hooks/useMarket';
 import './MarketSidebarPanel.css';
 
 interface SidebarRow {
@@ -44,11 +45,12 @@ interface MarketSidebarPanelProps {
 function MarketSidebarPanel({ activeSymbol, onSymbolClick, marketStatus }: MarketSidebarPanelProps) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { market } = useMarket();
   const [expanded, setExpanded] = useState(false);
   const effectiveExpanded = isMobile || expanded;
   const [activeTab, setActiveTab] = useState('watchlist');
-  const watchlist = useWatchlistData();
-  const portfolio = usePortfolioData();
+  const watchlist = useWatchlistData(market);
+  const portfolio = usePortfolioData(market);
   const { prices: wsPrices, connectionStatus: wsStatus, subscribe: wsSubscribe, unsubscribe: wsUnsubscribe } = useMarketDataWSContext();
 
   // Stable symbol string — only changes when the actual set of symbols changes,

@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Plus, ArrowUpRight, ArrowDownRight, Trash2, Pencil, Eye, EyeOff, Sunrise, Sunset, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { getExtendedHoursInfo } from '@/lib/marketUtils';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { MARKET_CONFIG, type MarketRegion } from '@/lib/marketConfig';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@/components/ui/context-menu';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 
@@ -44,10 +46,12 @@ interface WatchlistItemProps {
   onDelete?: (id: string) => void;
   marketStatus: MarketStatusData;
   isMobile: boolean;
+  isCnMarket: boolean;
 }
 
-function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: WatchlistItemProps) {
+function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMarket }: WatchlistItemProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const pos = item.isPositive;
   const pctStr = (pos ? '+' : '') + Number(item.changePercent).toFixed(2) + '%';
   const hasId = !!item.watchlist_item_id;
@@ -77,7 +81,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: Watchl
         <div className="font-bold text-sm" style={{ color: 'var(--color-text-primary)' }}>
           {item.symbol}
         </div>
-        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Stock</div>
+        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{t('dashboard.watchlist.stock')}</div>
       </div>
 
       <div className="flex items-center gap-4">
@@ -100,7 +104,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: Watchl
           >
             {pctStr}
           </div>
-          {extType && extPct != null && (
+          {!isCnMarket && extType && extPct != null && (
             <div className="text-[10px] mt-0.5 text-center flex items-center justify-center gap-0.5" style={{ color: extColor }}>
               {extType === 'pre' ? <Sunrise size={10} /> : <Sunset size={10} />}
               {Number(item.price).toFixed(2)} {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
@@ -123,7 +127,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: Watchl
             <DropdownMenuContent align="end">
               <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.watchlist_item_id))}>
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                {t('dashboard.watchlist.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -140,7 +144,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile }: Watchl
         <ContextMenuContent>
           <ContextMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.watchlist_item_id))}>
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            {t('dashboard.watchlist.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -158,10 +162,13 @@ interface PortfolioItemProps {
   valuesHidden: boolean;
   marketStatus: MarketStatusData;
   isMobile: boolean;
+  currencySymbol: string;
+  isCnMarket: boolean;
 }
 
-function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStatus, isMobile }: PortfolioItemProps) {
+function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStatus, isMobile, currencySymbol, isCnMarket }: PortfolioItemProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const pos = item.isPositive;
   const plStr =
     item.unrealizedPlPercent != null
@@ -195,14 +202,14 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
           {item.symbol}
         </div>
         <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-          {valuesHidden ? '*** shares' : item.quantity != null ? `${Number(item.quantity).toLocaleString()} shares` : ''}
+          {valuesHidden ? t('dashboard.watchlist.hiddenShares') : item.quantity != null ? `${Number(item.quantity).toLocaleString()} ${t('dashboard.watchlist.shares', { count: item.quantity })}` : ''}
         </div>
       </div>
 
       <div className="flex items-center gap-4">
         <div className="text-right">
           <div className="text-sm font-medium dashboard-mono" style={{ color: 'var(--color-text-primary)' }}>
-            {valuesHidden ? '******' : `$${Number(item.marketValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            {valuesHidden ? '******' : `${currencySymbol}${Number(item.marketValue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </div>
           <div className="text-xs dashboard-mono" style={{ color: 'var(--color-text-secondary)' }}>
             {valuesHidden ? '***' : `@${Number(extType && item.previousClose != null ? item.previousClose : item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
@@ -219,7 +226,7 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
           >
             {plStr}
           </div>
-          {extType && extPct != null && (
+          {!isCnMarket && extType && extPct != null && (
             <div className="text-[10px] mt-0.5 text-center flex items-center justify-center gap-0.5" style={{ color: extColor }}>
               {extType === 'pre' ? <Sunrise size={10} /> : <Sunset size={10} />}
               {Number(item.price).toFixed(2)} {extPct >= 0 ? '+' : ''}{extPct.toFixed(2)}%
@@ -242,11 +249,11 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => onEdit?.(item)}>
                 <Pencil className="h-3.5 w-3.5" />
-                Edit
+                {t('dashboard.watchlist.edit')}
               </DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                {t('dashboard.watchlist.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -263,11 +270,11 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => onEdit?.(item)}>
             <Pencil className="h-3.5 w-3.5" />
-            Edit
+            {t('dashboard.watchlist.edit')}
           </ContextMenuItem>
           <ContextMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            {t('dashboard.watchlist.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -321,6 +328,7 @@ interface PortfolioWatchlistCardProps {
   onPortfolioDelete?: (id: string) => void;
   onPortfolioEdit?: (item: PortfolioRow) => void;
   marketStatus: MarketStatusData;
+  market?: MarketRegion;
 }
 
 function PortfolioWatchlistCard({
@@ -335,8 +343,12 @@ function PortfolioWatchlistCard({
   onPortfolioDelete,
   onPortfolioEdit,
   marketStatus,
+  market = 'us',
 }: PortfolioWatchlistCardProps) {
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
+  const marketConfig = MARKET_CONFIG[market];
+  const isCnMarket = market === 'cn';
   const [activeTab, setActiveTabRaw] = useState<PWTabKey>(() => (localStorage.getItem('portfolio_active_tab') as PWTabKey) || 'watchlist');
   const [valuesHidden, setValuesHiddenRaw] = useState(() => localStorage.getItem('portfolio_values_hidden') === 'true');
 
@@ -370,7 +382,7 @@ function PortfolioWatchlistCard({
       {/* Header with tab switcher */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-          {activeTab === 'watchlist' ? 'Watchlist' : 'Portfolio'}
+          {activeTab === 'watchlist' ? t('dashboard.watchlist.tabWatchlist') : t('dashboard.watchlist.tabPortfolio')}
         </h2>
         <div className="flex rounded-xl p-1" style={{ backgroundColor: 'var(--color-bg-tag)' }}>
           <button
@@ -381,7 +393,7 @@ function PortfolioWatchlistCard({
               color: activeTab === 'watchlist' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             }}
           >
-            Watch
+            {t('dashboard.watchlist.tabWatch')}
           </button>
           <button
             onClick={() => setActiveTab('portfolio')}
@@ -391,7 +403,7 @@ function PortfolioWatchlistCard({
               color: activeTab === 'portfolio' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             }}
           >
-            Holdings
+            {t('dashboard.watchlist.tabHoldings')}
           </button>
         </div>
       </div>
@@ -430,9 +442,10 @@ function PortfolioWatchlistCard({
                       onDelete={onWatchlistDelete}
                       marketStatus={marketStatus}
                       isMobile={isMobile}
+                      isCnMarket={isCnMarket}
                     />
                   ))}
-              <AddNewButton label="Add Symbol" onClick={onWatchlistAdd} />
+              <AddNewButton label={t('dashboard.watchlist.addSymbol')} onClick={onWatchlistAdd} />
             </motion.div>
           ) : (
             <motion.div
@@ -453,7 +466,7 @@ function PortfolioWatchlistCard({
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                      Net Asset Value
+                      {t('dashboard.watchlist.netAssetValue')}
                     </div>
                     <button
                       onClick={() => setValuesHidden((h) => !h)}
@@ -469,7 +482,7 @@ function PortfolioWatchlistCard({
                     className="text-2xl font-bold mb-2 dashboard-mono"
                     style={{ color: 'var(--color-text-primary)' }}
                   >
-                    {valuesHidden ? '********' : `$${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    {valuesHidden ? '********' : `${marketConfig.currencySymbol}${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </div>
                   {!valuesHidden && (
                     <div
@@ -480,7 +493,7 @@ function PortfolioWatchlistCard({
                       }}
                     >
                       {isPlPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                      {isPlPositive ? '+' : '-'}${Math.abs(totalPl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({totalPlPct.toFixed(1)}%)
+                      {isPlPositive ? '+' : '-'}{marketConfig.currencySymbol}{Math.abs(totalPl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({totalPlPct.toFixed(1)}%)
                     </div>
                   )}
                 </div>
@@ -511,9 +524,11 @@ function PortfolioWatchlistCard({
                       valuesHidden={valuesHidden}
                       marketStatus={marketStatus}
                       isMobile={isMobile}
+                      currencySymbol={marketConfig.currencySymbol}
+                      isCnMarket={isCnMarket}
                     />
                   ))}
-              <AddNewButton label="Add Transaction" onClick={onPortfolioAdd} />
+              <AddNewButton label={t('dashboard.watchlist.addTransaction')} onClick={onPortfolioAdd} />
             </motion.div>
           )}
         </AnimatePresence>

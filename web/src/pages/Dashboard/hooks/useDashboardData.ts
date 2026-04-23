@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { getNews, getIndices, fallbackIndex, normalizeIndexSymbol, getIndexConfig } from '../utils/api';
 import { fetchMarketStatus } from '@/lib/marketUtils';
 import type { MarketRegion } from '@/lib/marketConfig';
-import type { IndexData } from '@/types/market';
+import type { MarketOverviewItem } from '@/types/market';
 
 interface MarketStatusData {
   market?: string;
@@ -24,7 +25,7 @@ interface NewsItem {
 }
 
 interface DashboardData {
-  indices: IndexData[] | undefined;
+  indices: MarketOverviewItem[] | undefined;
   indicesLoading: boolean;
   newsItems: NewsItem[];
   newsLoading: boolean;
@@ -33,20 +34,23 @@ interface DashboardData {
 }
 
 /**
- * Formats a given timestamp to a relative time string (e.g. "just now", "10 min ago").
+ * Formats a given timestamp to a relative time string using i18n keys.
  */
-function formatRelativeTime(timestamp: string | number | null | undefined): string {
+function formatRelativeTime(
+  timestamp: string | number | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
   if (!timestamp) return '';
   const now = new Date();
   const then = new Date(timestamp);
   const diffMs = now.getTime() - then.getTime();
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffMin < 1) return t('dashboard.relativeTime.justNow');
+  if (diffMin < 60) return t('dashboard.relativeTime.minutesAgo', { count: diffMin });
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} hr${diffHr > 1 ? 's' : ''} ago`;
+  if (diffHr < 24) return t('dashboard.relativeTime.hoursAgo', { count: diffHr });
   const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
+  return t('dashboard.relativeTime.daysAgo', { count: diffDay });
 }
 
 /**
@@ -55,6 +59,8 @@ function formatRelativeTime(timestamp: string | number | null | undefined): stri
  * Eliminates race conditions and reduces boilerplate of manual useEffects.
  */
 export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
+  const { t } = useTranslation();
+
   // 1. Market Status (Polls every 60s, cached globally)
   const { data: marketStatus = null } = useQuery<MarketStatusData | null>({
     queryKey: ['dashboard', 'marketStatus'],
@@ -70,15 +76,25 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
 
   const indexCfg = getIndexConfig(market);
 
-  const { data: indices, isLoading: indicesLoading } = useQuery<IndexData[]>({
+  const { data: indices, isLoading: indicesLoading } = useQuery<MarketOverviewItem[]>({
     queryKey: ['dashboard', 'indices', market, indexCfg.symbols],
     queryFn: async () => {
       const { indices: next } = await getIndices(indexCfg.symbols);
-      return next;
+      return next.map((item) => {
+        const norm = normalizeIndexSymbol(item.symbol);
+        return {
+          ...item,
+          assetType: indexCfg.types[norm] ?? 'index',
+        };
+      });
     },
     // Using placeholderData provides standard fallback values instantly
     // without populating the cache as "fresh", thereby triggering an immediate background fetch
-    placeholderData: (): IndexData[] => indexCfg.symbols.map((s) => fallbackIndex(normalizeIndexSymbol(s))),
+    placeholderData: (): MarketOverviewItem[] =>
+      indexCfg.symbols.map((s) => ({
+        ...fallbackIndex(normalizeIndexSymbol(s)),
+        assetType: indexCfg.types[normalizeIndexSymbol(s)] ?? 'index',
+      })),
     refetchInterval: isMarketOpen ? 30000 : 60000,
     refetchIntervalInBackground: false,
     staleTime: 10000,
@@ -86,14 +102,14 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
 
   // 3. News Feed (Fetched once, cached for 5 minutes)
   const { data: newsItems = [], isLoading: newsLoading } = useQuery<NewsItem[]>({
-    queryKey: ['dashboard', 'news'],
+    queryKey: ['dashboard', 'news', market],
     queryFn: async (): Promise<NewsItem[]> => {
-      const data = await getNews({ limit: 50 });
+      const data = await getNews({ limit: 50, market });
       if (data.results && data.results.length > 0) {
         return data.results.map((r: Record<string, unknown>) => ({
           id: r.id as string,
           title: r.title as string,
-          time: formatRelativeTime(r.published_at as string | null | undefined),
+          time: formatRelativeTime(r.published_at as string | null | undefined, t),
           isHot: r.has_sentiment as boolean,
           source: (r.source as Record<string, unknown> | undefined)?.name as string || '',
           favicon: (r.source as Record<string, unknown> | undefined)?.favicon_url as string || null,

@@ -210,7 +210,93 @@
     "watchlist": "Watchlist",
     "personalizeTitle": "Personalize your experience",
     "personalizeDesc": "Chat with our agent to customize watchlists, risk preferences, and alerts",
-    "personalize": "Personalize"
+    "personalize": "Personalize",
+    "marketOverview": "Market Overview",
+    "editHolding": "Edit holding — {{symbol}}",
+    "quantityRequired": "Quantity *",
+    "avgCostRequired": "Average Cost Per Share *",
+    "notes": "Notes",
+    "relativeTime": {
+      "justNow": "just now",
+      "minutesAgo": "{{count}} min ago",
+      "hoursAgo": "{{count}} hr ago",
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_other": "{{count}} days ago"
+    },
+    "brief": {
+      "justNow": "just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago",
+      "updated": "Updated {{time}}",
+      "generateFailed": "Brief generation failed. Please try again.",
+      "generationTimedOut": "Generation timed out. Please try again later.",
+      "alreadyGenerating": "Brief is already being generated. Try again in a moment.",
+      "creditLimitReached": "Credit limit reached. Upgrade to generate more briefs.",
+      "failedToGenerate": "Failed to generate brief. Please try again.",
+      "personalizedBrief": "Personalized Brief",
+      "aiGeneratedInsight": "AI Generated Insight",
+      "basedOnWatchlist": "Based on your watchlist & portfolio",
+      "readFullBrief": "Read Full Brief",
+      "generating": "Generating...",
+      "generatePersonalizedBrief": "Generate Personalized Brief",
+      "earlierCount": "{{count}} earlier today",
+      "earlierInsights": "Earlier Insights",
+      "generatingFirstInsight": "Generating first insight...",
+      "moreCount": "+{{count}} more",
+      "typePreMarket": "Pre-Market",
+      "typeMarketUpdate": "Market Update",
+      "typePostMarket": "Post-Market",
+      "typePersonalized": "Personalized"
+    },
+    "watchlist": {
+      "tabWatchlist": "Watchlist",
+      "tabPortfolio": "Portfolio",
+      "tabWatch": "Watch",
+      "tabHoldings": "Holdings",
+      "delete": "Delete",
+      "edit": "Edit",
+      "addSymbol": "Add Symbol",
+      "addTransaction": "Add Transaction",
+      "stock": "Stock",
+      "netAssetValue": "Net Asset Value",
+      "hiddenShares": "*** shares",
+      "shares": "{{count}} shares"
+    },
+    "earnings": {
+      "calendarTitle": "Earnings Calendar",
+      "viewAll": "View All",
+      "stockCount_one": "{{count}} stock",
+      "stockCount_other": "{{count}} stocks",
+      "noEarningsOnDate": "No earnings on this date",
+      "noEarningsInPeriod": "No earnings in this period",
+      "recent": "Recent",
+      "upcoming": "Upcoming"
+    },
+    "indexMovement": {
+      "etfBadge": "ETF",
+      "noChartData": "No chart data"
+    },
+    "chatInput": {
+      "suggestions": {
+        "us": [
+          "Summarize Apple's earnings",
+          "Compare TSLA vs BYD",
+          "Predict market volatility",
+          "Analyze my portfolio risk"
+        ],
+        "cn": [
+          "Summarize Kweichow Moutai's latest earnings",
+          "Compare BYD vs NIO",
+          "Predict China A-share market trends",
+          "Analyze my China market portfolio risk"
+        ]
+      },
+      "placeholder": {
+        "us": "Ask AI about market trends, specific stocks, or portfolio analysis...",
+        "cn": "Ask AI about China market trends, A-share stocks, or portfolio analysis..."
+      }
+    }
   },
   "workspace": {
     "workspaces": "Workspaces",

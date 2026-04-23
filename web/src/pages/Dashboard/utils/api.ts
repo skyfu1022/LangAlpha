@@ -72,6 +72,7 @@ interface NewsParams {
   tickers?: string[];
   limit?: number;
   cursor?: string;
+  market?: string;
 }
 
 interface NewsResponse {
@@ -83,6 +84,7 @@ interface NewsResponse {
 interface EarningsParams {
   from?: string;
   to?: string;
+  market?: string;
 }
 
 interface EarningsResponse {
@@ -102,13 +104,26 @@ interface InfoFlowResponse {
 
 import { MARKET_CONFIG, type MarketRegion } from '@/lib/marketConfig';
 
-/** Build index symbols/names for the given market region. */
+/** Build index symbols/names/types for the given market region. */
 function getIndexConfig(market: MarketRegion) {
   const cfg = MARKET_CONFIG[market];
-  const symbols = cfg.indices.map((i) => i.symbol);
+  const symbols: string[] = [];
   const names: Record<string, string> = {};
-  cfg.indices.forEach((i) => { names[i.symbol] = i.name; });
-  return { symbols, names };
+  const types: Record<string, 'index' | 'etf'> = {};
+
+  cfg.indices.forEach((i) => {
+    symbols.push(i.symbol);
+    names[i.symbol] = i.name;
+    types[i.symbol] = 'index';
+  });
+
+  cfg.etfs.forEach((i) => {
+    if (!symbols.includes(i.symbol)) symbols.push(i.symbol);
+    names[i.symbol] = i.name;
+    types[i.symbol] = 'etf';
+  });
+
+  return { symbols, names, types };
 }
 
 /** Legacy defaults for US market (used when market is not specified). */
@@ -551,12 +566,13 @@ export async function disconnectClaudeOAuth(): Promise<Record<string, unknown>> 
  * @param {{ tickers?: string[], limit?: number, cursor?: string }} opts
  * @returns {Promise<{ results: Array, count: number, next_cursor: string|null }>}
  */
-export async function getNews({ tickers, limit = 20, cursor }: NewsParams = {}): Promise<NewsResponse> {
+export async function getNews({ tickers, limit = 20, cursor, market }: NewsParams = {}): Promise<NewsResponse> {
   try {
     const params: Record<string, string | number> = {};
     if (tickers && tickers.length) params.tickers = tickers.join(',');
     if (limit) params.limit = limit;
     if (cursor) params.cursor = cursor;
+    if (market) params.market = market;
     const { data } = await api.get('/api/v1/news', { params });
     return data || { results: [], count: 0, next_cursor: null };
   } catch (e: unknown) {
@@ -577,9 +593,11 @@ export async function getNewsArticle(articleId: string): Promise<Record<string, 
 
 // --- AI Insights ---
 
-export async function getTodayInsights(): Promise<Record<string, unknown>[]> {
+export async function getTodayInsights(market?: string): Promise<Record<string, unknown>[]> {
   try {
-    const { data } = await api.get('/api/v1/insights/today');
+    const params: Record<string, string> = {};
+    if (market) params.market = market;
+    const { data } = await api.get('/api/v1/insights/today', { params });
     return data?.insights || [];
   } catch (e: unknown) {
     const err = e as { message?: string };
@@ -593,8 +611,10 @@ export async function getInsightDetail(marketInsightId: string): Promise<Record<
   return data;
 }
 
-export async function generatePersonalizedInsight(): Promise<Record<string, unknown>> {
-  const { data } = await api.post('/api/v1/insights/generate');
+export async function generatePersonalizedInsight(market?: string): Promise<Record<string, unknown>> {
+  const params: Record<string, string> = {};
+  if (market) params.market = market;
+  const { data } = await api.post('/api/v1/insights/generate', null, { params });
   return data;
 }
 
@@ -638,11 +658,12 @@ export async function getInfoFlowDetail(indexNumber: string): Promise<Record<str
  * GET /api/v1/calendar/earnings?from=YYYY-MM-DD&to=YYYY-MM-DD
  * Returns { data: [{ symbol, date, epsEstimated, revenueEstimated, ... }], count }
  */
-export async function getEarningsCalendar({ from, to }: EarningsParams = {}): Promise<EarningsResponse> {
+export async function getEarningsCalendar({ from, to, market }: EarningsParams = {}): Promise<EarningsResponse> {
   try {
     const params: Record<string, string> = {};
     if (from) params.from = from;
     if (to) params.to = to;
+    if (market) params.market = market;
     const { data } = await api.get('/api/v1/calendar/earnings', { params });
     return data || { data: [], count: 0 };
   } catch (e: unknown) {

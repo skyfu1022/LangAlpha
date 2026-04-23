@@ -2,8 +2,9 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import type { IndexData } from '@/types/market';
+import type { MarketOverviewItem } from '@/types/market';
 
 interface SparklineDataPoint {
   time?: string;
@@ -12,18 +13,19 @@ interface SparklineDataPoint {
 }
 
 interface IndexCardProps {
-  index: IndexData;
+  index: MarketOverviewItem;
   delay: number;
 }
 
 interface IndexMovementCardProps {
-  indices?: IndexData[];
+  indices?: MarketOverviewItem[];
   loading?: boolean;
 }
 
 /* ── Shared card content (no animation wrapper) ── */
 
-function IndexCardContent({ index }: { index: IndexData }) {
+function IndexCardContent({ index }: { index: MarketOverviewItem }) {
+  const { t, i18n } = useTranslation();
   const pos = index.isPositive;
   const ch = Number(index.change);
   const pct = Number(index.changePercent);
@@ -34,7 +36,9 @@ function IndexCardContent({ index }: { index: IndexData }) {
   );
 
   const today = new Date();
-  const dateStr = `${today.getMonth() + 1}/${today.getDate()}`;
+  const dateStr = today.toLocaleDateString(i18n.language, { month: 'numeric', day: 'numeric' });
+
+  const symbolLabel = index.assetType === 'index' ? `^${index.symbol}` : index.symbol;
 
   return (
     <>
@@ -53,8 +57,21 @@ function IndexCardContent({ index }: { index: IndexData }) {
                 {dateStr}
               </span>
             </div>
-            <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-              ^{index.symbol}
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                {symbolLabel}
+              </span>
+              {index.assetType === 'etf' && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: 'var(--color-bg-tag)',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
+                  {t('dashboard.indexMovement.etfBadge')}
+                </span>
+              )}
             </div>
           </div>
           <div className="text-right">
@@ -123,7 +140,7 @@ function IndexCardContent({ index }: { index: IndexData }) {
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-              No chart data
+              {t('dashboard.indexMovement.noChartData')}
             </span>
           </div>
         )}
@@ -136,6 +153,7 @@ function IndexCardContent({ index }: { index: IndexData }) {
 
 function IndexCard({ index, delay }: IndexCardProps) {
   const navigate = useNavigate();
+  const targetSymbol = index.assetType === 'index' ? `^${index.symbol}` : index.symbol;
 
   return (
     <motion.div
@@ -147,7 +165,7 @@ function IndexCard({ index, delay }: IndexCardProps) {
         borderColor: 'var(--color-border-muted)',
         backgroundColor: 'var(--color-bg-card)',
       }}
-      onClick={() => navigate(`/market?symbol=^${index.symbol}`)}
+      onClick={() => navigate(`/market?symbol=${targetSymbol}`)}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-muted)')}
     >
@@ -176,7 +194,7 @@ const swipeVariants = {
   }),
 };
 
-function IndexStackWidget({ indices }: { indices: IndexData[] }) {
+function IndexStackWidget({ indices }: { indices: MarketOverviewItem[] }) {
   const navigate = useNavigate();
   const [current, setCurrent] = useState(0);
   const [direction, setDirection] = useState(0);
@@ -268,7 +286,7 @@ function IndexStackWidget({ indices }: { indices: IndexData[] }) {
               backgroundColor: 'var(--color-bg-card)',
               touchAction: 'pan-y',
             }}
-            onClick={() => navigate(`/market?symbol=^${index.symbol}`)}
+            onClick={() => navigate(`/market?symbol=${index.assetType === 'index' ? `^${index.symbol}` : index.symbol}`)}
           >
             <IndexCardContent index={index} />
           </motion.div>

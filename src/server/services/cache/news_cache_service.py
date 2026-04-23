@@ -15,11 +15,12 @@ _GENERAL_TTL = 300  # 5 min for general news
 _TICKER_TTL = 180  # 3 min for ticker-specific news
 
 
-def _cache_key(tickers: list[str] | None, limit: int) -> str:
+def _cache_key(tickers: list[str] | None, limit: int, market: str | None = None) -> str:
+    m = market or "us"
     if tickers:
         tag = ",".join(sorted(t.upper() for t in tickers))
-        return f"news:tickers:{tag}:{limit}"
-    return f"news:general:{limit}"
+        return f"news:{m}:tickers:{tag}:{limit}"
+    return f"news:{m}:general:{limit}"
 
 
 class NewsCacheService:
@@ -34,10 +35,11 @@ class NewsCacheService:
         self,
         tickers: list[str] | None = None,
         limit: int = 20,
+        market: str | None = None,
     ) -> dict[str, Any] | None:
         try:
             cache = get_cache_client()
-            key = _cache_key(tickers, limit)
+            key = _cache_key(tickers, limit, market=market)
             raw = await cache.get(key)
             if raw is not None:
                 return json.loads(raw)
@@ -46,11 +48,13 @@ class NewsCacheService:
         return None
 
     async def get_article_by_id(self, article_id: str) -> dict[str, Any] | None:
-        """Scan all cached news lists for an article matching the given ID."""
+        """Scan all cached news lists for an article matching the given ID.
+
+        Uses SCAN instead of KEYS to avoid blocking the Redis server.
+        """
         try:
             cache = get_cache_client()
-            keys = await cache.keys("news:*")
-            for key in keys:
+            async for key in cache.scan_iter("news:*"):
                 raw = await cache.get(key)
                 if raw:
                     data = json.loads(raw)
@@ -66,10 +70,11 @@ class NewsCacheService:
         data: dict[str, Any],
         tickers: list[str] | None = None,
         limit: int = 20,
+        market: str | None = None,
     ) -> None:
         try:
             cache = get_cache_client()
-            key = _cache_key(tickers, limit)
+            key = _cache_key(tickers, limit, market=market)
             ttl = _TICKER_TTL if tickers else _GENERAL_TTL
             await cache.set(key, json.dumps(data), ttl=ttl)
         except Exception:

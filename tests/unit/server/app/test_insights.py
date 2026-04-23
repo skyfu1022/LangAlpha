@@ -224,7 +224,7 @@ async def test_todays_insights_mixed(client):
     body = resp.json()
     assert body["count"] == 2
     assert len(body["insights"]) == 2
-    mock_db.assert_awaited_once_with(user_id=USER_ID)
+    mock_db.assert_awaited_once_with(user_id=USER_ID, market="us")
 
 
 @pytest.mark.asyncio

@@ -154,26 +154,29 @@ async def get_market_insight(market_insight_id: str) -> Optional[dict]:
 
 async def get_todays_market_insights(
     user_id: Optional[str] = None,
+    market: str = "us",
 ) -> list[dict]:
-    """Get all completed insights for today (America/New_York).
+    """Get all completed insights for today.
 
+    Uses America/New_York for US market, Asia/Shanghai for CN market.
     Returns card columns only, ordered newest first.
     When user_id is provided, returns UNION ALL of system insights (user_id IS NULL)
     and user's personal insights, each hitting its own partial index.
     System insights fall back to yesterday if none today; user insights do not.
+    Filtered by market via COALESCE(metadata->>'market', 'us').
     """
-    et = ZoneInfo("America/New_York")
-    today = datetime.now(et).date()
-    day_start = datetime.combine(today, datetime.min.time(), tzinfo=et).astimezone(
+    tz = ZoneInfo("Asia/Shanghai") if market == "cn" else ZoneInfo("America/New_York")
+    today = datetime.now(tz).date()
+    day_start = datetime.combine(today, datetime.min.time(), tzinfo=tz).astimezone(
         timezone.utc
     )
     day_end = datetime.combine(
-        today + timedelta(days=1), datetime.min.time(), tzinfo=et
+        today + timedelta(days=1), datetime.min.time(), tzinfo=tz
     ).astimezone(timezone.utc)
 
     async with get_db_connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
-            # Query 1: system insights (always)
+            # Query 1: system insights (always), filtered by market
             await cur.execute(
                 f"""
                 SELECT {CARD_COLUMNS}
@@ -181,16 +184,17 @@ async def get_todays_market_insights(
                 WHERE status = 'completed'
                   AND created_at >= %s AND created_at < %s
                   AND user_id IS NULL
+                  AND COALESCE(metadata->>'market', 'us') = %s
                 ORDER BY created_at DESC
                 """,
-                (day_start, day_end),
+                (day_start, day_end, market),
             )
             system_rows = [dict(r) for r in await cur.fetchall()]
 
             # System fallback: yesterday's most recent if none today
             if not system_rows:
                 yesterday_start = datetime.combine(
-                    today - timedelta(days=1), datetime.min.time(), tzinfo=et
+                    today - timedelta(days=1), datetime.min.time(), tzinfo=tz
                 ).astimezone(timezone.utc)
                 await cur.execute(
                     f"""
@@ -199,16 +203,17 @@ async def get_todays_market_insights(
                     WHERE status = 'completed'
                       AND created_at >= %s AND created_at < %s
                       AND user_id IS NULL
+                      AND COALESCE(metadata->>'market', 'us') = %s
                     ORDER BY created_at DESC
                     LIMIT 1
                     """,
-                    (yesterday_start, day_start),
+                    (yesterday_start, day_start, market),
                 )
                 fallback = await cur.fetchone()
                 if fallback:
                     system_rows = [dict(fallback)]
 
-            # Query 2: user insights (only if user_id provided)
+            # Query 2: user insights (only if user_id provided), filtered by market
             user_rows: list[dict] = []
             if user_id is not None:
                 await cur.execute(
@@ -218,9 +223,10 @@ async def get_todays_market_insights(
                     WHERE status = 'completed'
                       AND created_at >= %s AND created_at < %s
                       AND user_id = %s
+                      AND COALESCE(metadata->>'market', 'us') = %s
                     ORDER BY created_at DESC
                     """,
-                    (day_start, day_end, user_id),
+                    (day_start, day_end, user_id, market),
                 )
                 user_rows = [dict(r) for r in await cur.fetchall()]
 
@@ -230,8 +236,10 @@ async def get_todays_market_insights(
             return merged
 
 
-async def get_user_generating_insight(user_id: str) -> Optional[dict]:
-    """Get an in-progress insight for the user (idempotency check)."""
+async def get_user_generating_insight(
+    user_id: str, market: str = "us"
+) -> Optional[dict]:
+    """Get an in-progress insight for the user (idempotency check), filtered by market."""
     async with get_db_connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -239,19 +247,20 @@ async def get_user_generating_insight(user_id: str) -> Optional[dict]:
                 SELECT {ALL_COLUMNS}
                 FROM market_insights
                 WHERE user_id = %s AND status = 'generating'
+                  AND COALESCE(metadata->>'market', 'us') = %s
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
-                (user_id,),
+                (user_id, market),
             )
             row = await cur.fetchone()
             return dict(row) if row else None
 
 
 async def get_user_recent_completed_insight(
-    user_id: str, within_minutes: int = 5
+    user_id: str, within_minutes: int = 5, market: str = "us"
 ) -> Optional[dict]:
-    """Get a recently completed personalized insight for dedup."""
+    """Get a recently completed personalized insight for dedup, filtered by market."""
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
     async with get_db_connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
@@ -263,21 +272,23 @@ async def get_user_recent_completed_insight(
                   AND status = 'completed'
                   AND type = 'personalized'
                   AND completed_at >= %s
+                  AND COALESCE(metadata->>'market', 'us') = %s
                 ORDER BY completed_at DESC
                 LIMIT 1
                 """,
-                (user_id, cutoff),
+                (user_id, cutoff, market),
             )
             row = await cur.fetchone()
             return dict(row) if row else None
 
 
 async def get_latest_completed_at(
-    type: Optional[str] = None, user_id: Optional[str] = None
+    type: Optional[str] = None, user_id: Optional[str] = None, market: Optional[str] = None
 ) -> Optional[datetime]:
     """Get the completed_at timestamp of the most recent completed insight.
 
     If type is None, returns the most recent completed insight of any type.
+    If market is provided, filters by COALESCE(metadata->>'market', 'us') = market.
     """
     async with get_db_connection() as conn:
         async with conn.cursor(row_factory=dict_row) as cur:
@@ -293,6 +304,10 @@ async def get_latest_completed_at(
             else:
                 conditions.append("user_id = %s")
                 params.append(user_id)
+
+            if market is not None:
+                conditions.append("COALESCE(metadata->>'market', 'us') = %s")
+                params.append(market)
 
             where = " AND ".join(conditions)
             await cur.execute(
