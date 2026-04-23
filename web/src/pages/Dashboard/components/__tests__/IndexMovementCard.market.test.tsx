@@ -47,6 +47,20 @@ vi.mock('@/hooks/useIsMobile', () => ({
   useIsMobile: () => false,
 }));
 
+// Mock react-i18next to return keys as values (no i18n init in test)
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => {
+      const map: Record<string, string> = {
+        'dashboard.indexMovement.etfBadge': 'ETF',
+        'dashboard.indexMovement.noChartData': 'No chart data',
+      };
+      return map[key] ?? key;
+    },
+    i18n: { language: 'en-US' },
+  }),
+}));
+
 // ── Helpers ──
 
 function createQueryClient() {

@@ -19,6 +19,7 @@ from src.server.services.insight_service import (
     InsightService,
     _extract_json_string,
     _extract_structured_output,
+    _tail,
 )
 
 
@@ -469,6 +470,7 @@ class TestSchedule:
         )
 
         assert await svc._is_duplicate("pre_market") is True
+        mock_db.get_latest_completed_at.assert_called_with(type="pre_market", market="us")
 
     @pytest.mark.asyncio
     @patch("src.server.services.insight_service.insight_db")
@@ -481,6 +483,7 @@ class TestSchedule:
         )
 
         assert await svc._is_duplicate("pre_market") is False
+        mock_db.get_latest_completed_at.assert_called_with(type="pre_market", market="us")
 
     @pytest.mark.asyncio
     @patch("src.server.services.insight_service.insight_db")
@@ -490,6 +493,17 @@ class TestSchedule:
         mock_db.get_latest_completed_at = AsyncMock(return_value=None)
 
         assert await svc._is_duplicate("market_update") is False
+        mock_db.get_latest_completed_at.assert_called_with(type="market_update", market="us")
+
+    @pytest.mark.asyncio
+    @patch("src.server.services.insight_service.insight_db")
+    async def test_is_duplicate_passes_market(self, mock_db):
+        """_is_duplicate passes market parameter to DB query."""
+        svc = InsightService()
+        mock_db.get_latest_completed_at = AsyncMock(return_value=None)
+
+        assert await svc._is_duplicate("pre_market", market="cn") is False
+        mock_db.get_latest_completed_at.assert_called_with(type="pre_market", market="cn")
 
     def test_next_job_wraps_to_tomorrow(self):
         """When no jobs remain today, _next_job returns first job tomorrow."""
@@ -681,3 +695,23 @@ class TestExtractJsonString:
     def test_whitespace_stripped(self):
         inner = '{"key": "value"}'
         assert _extract_json_string(f"  {inner}  ") == inner
+
+
+# ---------------------------------------------------------------------------
+# _tail (market-aware tail instruction)
+# ---------------------------------------------------------------------------
+
+class TestTail:
+    """Test _tail helper returns market-appropriate focus text."""
+
+    def test_us_market_focus(self):
+        result = _tail("us")
+        assert "US market focus" in result
+
+    def test_cn_market_focus(self):
+        result = _tail("cn")
+        assert "China A-share" in result
+
+    def test_default_is_us(self):
+        result = _tail()
+        assert "US market focus" in result

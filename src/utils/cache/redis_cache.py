@@ -319,6 +319,25 @@ class RedisCacheClient:
             self.stats["errors"] += 1
             return 0
 
+    async def scan_iter(self, pattern: str, count: int = 100):
+        """
+        Iterate over keys matching pattern using SCAN (production-safe).
+
+        Unlike KEYS, SCAN uses a cursor and does not block the server.
+
+        Args:
+            pattern: Key pattern (e.g., "news:*")
+            count: Hint for number of keys per SCAN iteration
+
+        Yields:
+            Matching keys as bytes.
+        """
+        if not self.enabled or not self.client:
+            return
+
+        async for key in self.client.scan_iter(match=pattern, count=count):
+            yield key
+
     async def exists(self, key: str) -> bool:
         """
         Check if key exists in cache.

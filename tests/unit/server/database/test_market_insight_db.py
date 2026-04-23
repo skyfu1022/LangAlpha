@@ -402,6 +402,39 @@ async def test_get_latest_completed_at_with_user_id(mi_mock_db, mock_cursor):
     assert "user-abc" in params
 
 
+@pytest.mark.asyncio
+async def test_get_latest_completed_at_with_market(mi_mock_db, mock_cursor):
+    """get_latest_completed_at with market filters by COALESCE metadata."""
+    from src.server.database.market_insight import get_latest_completed_at
+
+    ts = datetime.now(timezone.utc)
+    mock_cursor.fetchone.return_value = {"completed_at": ts}
+
+    result = await get_latest_completed_at(type="pre_market", market="cn")
+
+    assert result == ts
+    sql = mock_cursor.execute.call_args[0][0]
+    assert "COALESCE(metadata->>'market', 'us') = %s" in sql
+    params = mock_cursor.execute.call_args[0][1]
+    assert "pre_market" in params
+    assert "cn" in params
+
+
+@pytest.mark.asyncio
+async def test_get_latest_completed_at_no_market_no_coalesce(mi_mock_db, mock_cursor):
+    """get_latest_completed_at without market does not add COALESCE filter."""
+    from src.server.database.market_insight import get_latest_completed_at
+
+    ts = datetime.now(timezone.utc)
+    mock_cursor.fetchone.return_value = {"completed_at": ts}
+
+    result = await get_latest_completed_at(type="pre_market")
+
+    assert result == ts
+    sql = mock_cursor.execute.call_args[0][0]
+    assert "COALESCE" not in sql
+
+
 # ===========================================================================
 # get_user_generating_insight
 # ===========================================================================
@@ -423,7 +456,7 @@ async def test_get_user_generating_insight_found(mi_mock_db, mock_cursor):
     sql = mock_cursor.execute.call_args[0][0]
     assert "status = 'generating'" in sql
     params = mock_cursor.execute.call_args[0][1]
-    assert params == ("user-1",)
+    assert params == ("user-1", "us")
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { getNews, getIndices, fallbackIndex, normalizeIndexSymbol, getIndexConfig } from '../utils/api';
 import { fetchMarketStatus } from '@/lib/marketUtils';
 import type { MarketRegion } from '@/lib/marketConfig';
@@ -33,20 +34,23 @@ interface DashboardData {
 }
 
 /**
- * Formats a given timestamp to a relative time string (e.g. "just now", "10 min ago").
+ * Formats a given timestamp to a relative time string using i18n keys.
  */
-function formatRelativeTime(timestamp: string | number | null | undefined): string {
+function formatRelativeTime(
+  timestamp: string | number | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
   if (!timestamp) return '';
   const now = new Date();
   const then = new Date(timestamp);
   const diffMs = now.getTime() - then.getTime();
   const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return 'just now';
-  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffMin < 1) return t('dashboard.relativeTime.justNow');
+  if (diffMin < 60) return t('dashboard.relativeTime.minutesAgo', { count: diffMin });
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} hr${diffHr > 1 ? 's' : ''} ago`;
+  if (diffHr < 24) return t('dashboard.relativeTime.hoursAgo', { count: diffHr });
   const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
+  return t('dashboard.relativeTime.daysAgo', { count: diffDay });
 }
 
 /**
@@ -55,6 +59,8 @@ function formatRelativeTime(timestamp: string | number | null | undefined): stri
  * Eliminates race conditions and reduces boilerplate of manual useEffects.
  */
 export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
+  const { t } = useTranslation();
+
   // 1. Market Status (Polls every 60s, cached globally)
   const { data: marketStatus = null } = useQuery<MarketStatusData | null>({
     queryKey: ['dashboard', 'marketStatus'],
@@ -103,7 +109,7 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
         return data.results.map((r: Record<string, unknown>) => ({
           id: r.id as string,
           title: r.title as string,
-          time: formatRelativeTime(r.published_at as string | null | undefined),
+          time: formatRelativeTime(r.published_at as string | null | undefined, t),
           isHot: r.has_sentiment as boolean,
           source: (r.source as Record<string, unknown> | undefined)?.name as string || '',
           favicon: (r.source as Record<string, unknown> | undefined)?.favicon_url as string || null,

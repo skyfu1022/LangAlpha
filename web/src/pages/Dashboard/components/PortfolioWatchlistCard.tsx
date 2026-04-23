@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, ArrowUpRight, ArrowDownRight, Trash2, Pencil, Eye, EyeOff, Sunrise, Sunset, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { getExtendedHoursInfo } from '@/lib/marketUtils';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { MARKET_CONFIG, type MarketRegion } from '@/lib/marketConfig';
@@ -50,6 +51,7 @@ interface WatchlistItemProps {
 
 function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMarket }: WatchlistItemProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const pos = item.isPositive;
   const pctStr = (pos ? '+' : '') + Number(item.changePercent).toFixed(2) + '%';
   const hasId = !!item.watchlist_item_id;
@@ -79,7 +81,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMark
         <div className="font-bold text-sm" style={{ color: 'var(--color-text-primary)' }}>
           {item.symbol}
         </div>
-        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>Stock</div>
+        <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{t('dashboard.watchlist.stock')}</div>
       </div>
 
       <div className="flex items-center gap-4">
@@ -125,7 +127,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMark
             <DropdownMenuContent align="end">
               <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.watchlist_item_id))}>
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                {t('dashboard.watchlist.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -142,7 +144,7 @@ function WatchlistItem({ item, index, onDelete, marketStatus, isMobile, isCnMark
         <ContextMenuContent>
           <ContextMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.watchlist_item_id))}>
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            {t('dashboard.watchlist.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -166,6 +168,7 @@ interface PortfolioItemProps {
 
 function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStatus, isMobile, currencySymbol, isCnMarket }: PortfolioItemProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const pos = item.isPositive;
   const plStr =
     item.unrealizedPlPercent != null
@@ -199,7 +202,7 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
           {item.symbol}
         </div>
         <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-          {valuesHidden ? '*** shares' : item.quantity != null ? `${Number(item.quantity).toLocaleString()} shares` : ''}
+          {valuesHidden ? t('dashboard.watchlist.hiddenShares') : item.quantity != null ? `${Number(item.quantity).toLocaleString()} ${t('dashboard.watchlist.shares', { count: item.quantity })}` : ''}
         </div>
       </div>
 
@@ -246,11 +249,11 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => onEdit?.(item)}>
                 <Pencil className="h-3.5 w-3.5" />
-                Edit
+                {t('dashboard.watchlist.edit')}
               </DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                {t('dashboard.watchlist.delete')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -267,11 +270,11 @@ function PortfolioItem({ item, index, onEdit, onDelete, valuesHidden, marketStat
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => onEdit?.(item)}>
             <Pencil className="h-3.5 w-3.5" />
-            Edit
+            {t('dashboard.watchlist.edit')}
           </ContextMenuItem>
           <ContextMenuItem variant="destructive" onSelect={() => onDelete?.(String(item.user_portfolio_id))}>
             <Trash2 className="h-3.5 w-3.5" />
-            Delete
+            {t('dashboard.watchlist.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -343,6 +346,7 @@ function PortfolioWatchlistCard({
   market = 'us',
 }: PortfolioWatchlistCardProps) {
   const isMobile = useIsMobile();
+  const { t } = useTranslation();
   const marketConfig = MARKET_CONFIG[market];
   const isCnMarket = market === 'cn';
   const [activeTab, setActiveTabRaw] = useState<PWTabKey>(() => (localStorage.getItem('portfolio_active_tab') as PWTabKey) || 'watchlist');
@@ -378,7 +382,7 @@ function PortfolioWatchlistCard({
       {/* Header with tab switcher */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
-          {activeTab === 'watchlist' ? 'Watchlist' : 'Portfolio'}
+          {activeTab === 'watchlist' ? t('dashboard.watchlist.tabWatchlist') : t('dashboard.watchlist.tabPortfolio')}
         </h2>
         <div className="flex rounded-xl p-1" style={{ backgroundColor: 'var(--color-bg-tag)' }}>
           <button
@@ -389,7 +393,7 @@ function PortfolioWatchlistCard({
               color: activeTab === 'watchlist' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             }}
           >
-            Watch
+            {t('dashboard.watchlist.tabWatch')}
           </button>
           <button
             onClick={() => setActiveTab('portfolio')}
@@ -399,7 +403,7 @@ function PortfolioWatchlistCard({
               color: activeTab === 'portfolio' ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
             }}
           >
-            Holdings
+            {t('dashboard.watchlist.tabHoldings')}
           </button>
         </div>
       </div>
@@ -441,7 +445,7 @@ function PortfolioWatchlistCard({
                       isCnMarket={isCnMarket}
                     />
                   ))}
-              <AddNewButton label="Add Symbol" onClick={onWatchlistAdd} />
+              <AddNewButton label={t('dashboard.watchlist.addSymbol')} onClick={onWatchlistAdd} />
             </motion.div>
           ) : (
             <motion.div
@@ -462,7 +466,7 @@ function PortfolioWatchlistCard({
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-                      Net Asset Value
+                      {t('dashboard.watchlist.netAssetValue')}
                     </div>
                     <button
                       onClick={() => setValuesHidden((h) => !h)}
@@ -524,7 +528,7 @@ function PortfolioWatchlistCard({
                       isCnMarket={isCnMarket}
                     />
                   ))}
-              <AddNewButton label="Add Transaction" onClick={onPortfolioAdd} />
+              <AddNewButton label={t('dashboard.watchlist.addTransaction')} onClick={onPortfolioAdd} />
             </motion.div>
           )}
         </AnimatePresence>

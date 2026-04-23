@@ -118,7 +118,7 @@ function Dashboard() {
               className="text-2xl font-bold"
               style={{ color: 'var(--color-text-primary)' }}
             >
-              Market Overview
+              {t('dashboard.marketOverview')}
             </h1>
             {isMobile && (
               <button
@@ -248,11 +248,11 @@ function Dashboard() {
       <Dialog open={!!portfolio.editRow} onOpenChange={(open) => !open && portfolio.openEdit(null)}>
         <DialogContent className="sm:max-w-sm border" style={{ backgroundColor: 'var(--color-bg-elevated)', borderColor: 'var(--color-border-elevated)' }}>
           <DialogHeader>
-            <DialogTitle className="title-font" style={{ color: 'var(--color-text-primary)' }}>Edit holding — {portfolio.editRow?.symbol}</DialogTitle>
+            <DialogTitle className="title-font" style={{ color: 'var(--color-text-primary)' }}>{t('dashboard.editHolding', { symbol: portfolio.editRow?.symbol })}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); portfolio.handleUpdate?.(); } }}>
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--color-text-secondary)' }}>Quantity *</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--color-text-secondary)' }}>{t('dashboard.quantityRequired')}</label>
               <Input
                 type="number"
                 min="0"
@@ -265,7 +265,7 @@ function Dashboard() {
               />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--color-text-secondary)' }}>Average Cost Per Share *</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--color-text-secondary)' }}>{t('dashboard.avgCostRequired')}</label>
               <Input
                 type="number"
                 min="0"
@@ -278,9 +278,9 @@ function Dashboard() {
               />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--color-text-secondary)' }}>Notes</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--color-text-secondary)' }}>{t('dashboard.notes')}</label>
               <Input
-                placeholder="Optional"
+                placeholder={t('common.optional')}
                 value={portfolio.editForm.notes ?? ''}
                 onChange={(e) => portfolio.setEditForm?.({ ...portfolio.editForm, notes: e.target.value })}
                 className="border"
@@ -290,10 +290,10 @@ function Dashboard() {
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => portfolio.openEdit(null)} className="px-3 py-1.5 rounded text-sm border hover:bg-foreground/10" style={{ color: 'var(--color-text-primary)', borderColor: 'var(--color-border-default)' }}>
-              Cancel
+              {t('common.cancel')}
             </button>
             <button type="button" onClick={portfolio.handleUpdate} className="px-3 py-1.5 rounded text-sm font-medium hover:opacity-90" style={{ backgroundColor: 'var(--color-accent-primary)', color: 'var(--color-text-on-accent)' }}>
-              Save
+              {t('common.save')}
             </button>
           </div>
         </DialogContent>

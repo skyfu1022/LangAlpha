@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 
 from src.data_client.fmp.fmp_client import FMPClient
 from src.data_client.tushare import get_tushare_client
+from src.server.models.market import validate_market
 from src.server.models.calendar import (
     EarningsCalendarResponse,
     EarningsEvent,
@@ -27,10 +29,11 @@ _earnings_cache = EarningsCacheService()
 
 
 def _default_dates(
-    from_date: Optional[str], to_date: Optional[str]
+    from_date: Optional[str], to_date: Optional[str], market: str = "us"
 ) -> tuple[str, str]:
-    """Fill in missing dates with today → today+7."""
-    today = date.today()
+    """Fill in missing dates with today → today+7 (market-aware timezone)."""
+    tz = ZoneInfo("Asia/Shanghai") if market == "cn" else ZoneInfo("America/New_York")
+    today = datetime.now(tz).date()
     if not from_date:
         from_date = today.isoformat()
     if not to_date:
@@ -135,7 +138,8 @@ async def get_earnings_calendar(
     ),
 ) -> EarningsCalendarResponse:
     """Get upcoming and past earnings announcements with EPS and revenue data."""
-    from_date, to_date = _default_dates(from_date, to_date)
+    market = validate_market(market)
+    from_date, to_date = _default_dates(from_date, to_date, market=market)
 
     # Check cache
     cached = await _earnings_cache.get(from_date, to_date, market=market)

@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from src.server.models.market import validate_market
 from src.server.models.news import (
     NewsArticle,
     NewsArticleCompact,
@@ -31,6 +32,7 @@ def _filter_by_market(articles: list[dict], market: str | None) -> list[dict]:
 
     CN market: keep articles with tickers ending in .SH/.SZ/.SS.
     US market: keep articles WITHOUT such suffixes.
+    Articles without tickers are general/macro news — included for all markets.
     No market (None): return all articles unchanged.
     """
     if not market:
@@ -38,14 +40,16 @@ def _filter_by_market(articles: list[dict], market: str | None) -> list[dict]:
     filtered = []
     for article in articles:
         tickers = article.get('tickers', []) or []
-        if market == 'cn':
-            if any(str(t).upper().endswith(_CN_SUFFIXES) for t in tickers):
-                filtered.append(article)
-        elif market == 'us':
-            if not any(str(t).upper().endswith(_CN_SUFFIXES) for t in tickers):
-                filtered.append(article)
-        else:
+        if not tickers:
+            # Articles without tickers are general/macro news — include for all markets
             filtered.append(article)
+            continue
+        has_cn = any(str(t).upper().endswith(_CN_SUFFIXES) for t in tickers)
+        if market == 'cn' and has_cn:
+            filtered.append(article)
+        elif market == 'us' and not has_cn:
+            filtered.append(article)
+        # else: ticker set exists but belongs to the other market — exclude
     return filtered
 
 
@@ -85,6 +89,7 @@ async def get_news(
         None, description="Market filter: 'us' or 'cn'. Filters articles by ticker suffix."
     ),
 ) -> NewsCompactResponse:
+    market = validate_market(market)
     ticker_list = (
         [t.strip().upper() for t in tickers.split(",") if t.strip()]
         if tickers

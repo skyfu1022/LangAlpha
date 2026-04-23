@@ -37,10 +37,17 @@ DEFAULT_GENERATION_TIMEOUT = 600
 DEFAULT_DEDUP_WINDOW_MINUTES = 5
 
 
-_TAIL = (
-    "Only include genuinely noteworthy stories. "
-    "Report facts, not predictions or recommendations. US market focus."
-)
+def _tail(market: str = "us") -> str:
+    """Return the market-appropriate tail instruction."""
+    focus = (
+        "China A-share / mainland market focus."
+        if market == "cn"
+        else "US market focus."
+    )
+    return (
+        "Only include genuinely noteworthy stories. "
+        f"Report facts, not predictions or recommendations. {focus}"
+    )
 
 _JSON_GUIDELINES = """
 You MUST respond with ONLY a valid JSON object (no markdown, no explanation, no preamble).
@@ -59,7 +66,7 @@ Include 4-8 news_items and 3-5 topics. Respond with ONLY the JSON object.
 """
 
 
-def _build_instruction(insight_type: str, now_et: datetime) -> str:
+def _build_instruction(insight_type: str, now_et: datetime, market: str = "us") -> str:
     """Build the research instruction for the given job type."""
     time_str = now_et.strftime("%A, %B %-d, %Y %-I:%M %p ET")
     today_date = now_et.strftime("%A, %B %-d, %Y")
@@ -72,7 +79,7 @@ def _build_instruction(insight_type: str, now_et: datetime) -> str:
             f"Curate the most significant US financial market news "
             f"from last night ({yesterday_date} ~8 PM ET) through this morning. "
             f"For each story, provide a short headline and a 2-4 sentence "
-            f"factual summary of what happened. {_TAIL}"
+            f"factual summary of what happened. {_tail(market)}"
         )
 
     if insight_type == "market_update":
@@ -83,7 +90,7 @@ def _build_instruction(insight_type: str, now_et: datetime) -> str:
             f"Curate the most significant US financial market news from the "
             f"past hour ({window_start} – {window_end} ET). "
             f"For each story, provide a short headline and a 2-4 sentence "
-            f"factual summary of what happened. {_TAIL}"
+            f"factual summary of what happened. {_tail(market)}"
         )
 
     # post_market
@@ -92,12 +99,12 @@ def _build_instruction(insight_type: str, now_et: datetime) -> str:
         f"Curate the most significant US financial market news from today "
         f"({today_date}) for an end-of-day recap. "
         f"For each story, provide a short headline and a 2-4 sentence "
-        f"factual summary of what happened. {_TAIL}"
+        f"factual summary of what happened. {_tail(market)}"
     )
 
 
 def _build_personalized_instruction(
-    symbols_context: str, now_et: datetime
+    symbols_context: str, now_et: datetime, market: str = "us"
 ) -> str:
     """Build a personalized insight prompt with watchlist/portfolio context."""
     time_str = now_et.strftime("%A, %B %-d, %Y %-I:%M %p ET")
@@ -108,7 +115,7 @@ def _build_personalized_instruction(
         f"and developments for these holdings:\n\n{symbols_context}\n\n"
         f"For each relevant story, provide a short headline and a 2-4 sentence "
         f"factual summary. Prioritize stories that directly affect the listed "
-        f"symbols. {_TAIL}"
+        f"symbols. {_tail(market)}"
     )
 
 
@@ -372,7 +379,7 @@ class InsightService:
         """
         # Dedup: check for recently completed personalized insight
         recent = await insight_db.get_user_recent_completed_insight(
-            user_id, within_minutes=self._dedup_window_minutes
+            user_id, within_minutes=self._dedup_window_minutes, market=market
         )
         if recent:
             logger.info(
@@ -386,10 +393,10 @@ class InsightService:
         now_et = datetime.now(self._tz)
 
         if symbols_context:
-            prompt = _build_personalized_instruction(symbols_context, now_et)
+            prompt = _build_personalized_instruction(symbols_context, now_et, market=market)
         else:
             # Empty watchlist/portfolio — fall back to generic brief
-            prompt = _build_instruction("market_update", now_et)
+            prompt = _build_instruction("market_update", now_et, market=market)
 
         # Add market context to prompt
         if market == "cn":
@@ -408,13 +415,13 @@ class InsightService:
         )
         if row is None:
             # Another request already created a generating row
-            existing = await insight_db.get_user_generating_insight(user_id)
+            existing = await insight_db.get_user_generating_insight(user_id, market=market)
             if existing:
                 raise InsightAlreadyGeneratingError(existing)
             # Edge case: generating row completed between our conflict and here.
             # Check for the just-completed insight instead of returning None.
             recent = await insight_db.get_user_recent_completed_insight(
-                user_id, within_minutes=1
+                user_id, within_minutes=1, market=market
             )
             if recent:
                 return recent
@@ -697,9 +704,9 @@ class InsightService:
         except asyncio.TimeoutError:
             return False  # Timer elapsed normally
 
-    async def _is_duplicate(self, job_type: str) -> bool:
+    async def _is_duplicate(self, job_type: str, market: str = "us") -> bool:
         """Check if a completed insight of this type exists within the staleness window."""
-        latest_at = await insight_db.get_latest_completed_at(type=job_type)
+        latest_at = await insight_db.get_latest_completed_at(type=job_type, market=market)
         if not latest_at:
             return False
 
@@ -712,10 +719,10 @@ class InsightService:
     # ------------------------------------------------------------------
 
     async def _generate_insight(
-        self, job_type: str, now_et: datetime
+        self, job_type: str, now_et: datetime, market: str = "us"
     ) -> None:
         """Generate a single market insight via flash agent."""
-        instruction = _build_instruction(job_type, now_et)
+        instruction = _build_instruction(job_type, now_et, market=market)
 
         logger.info(f"[MARKET_INSIGHT] Starting {job_type} (flash agent)")
         start_time = time.monotonic()
@@ -728,7 +735,7 @@ class InsightService:
         row = await insight_db.create_market_insight(
             model="flash",
             type=job_type,
-            metadata={"instruction": instruction, "schema_version": 3, "market": "us"},
+            metadata={"instruction": instruction, "schema_version": 3, "market": market},
         )
         insight_id = row["market_insight_id"]
 

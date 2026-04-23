@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from src.server.database import market_insight as market_insight_db
 from src.server.dependencies.usage_limits import enforce_credit_limit
+from src.server.models.market import validate_market
 from src.server.models.market_insight import (
     MarketInsightDetailResponse,
     MarketInsightListResponse,
@@ -31,9 +32,10 @@ async def get_todays_insights(
     user_id: CurrentUserId,
     market: str | None = Query("us", description="Market context: 'us' or 'cn'."),
 ):
+    market = validate_market(market)
     rows = await market_insight_db.get_todays_market_insights(
         user_id=user_id,
-        market=market or "us",
+        market=market,
     )
     return {"insights": rows, "count": len(rows)}
 
@@ -73,11 +75,12 @@ async def generate_personalized_insight(
     Poll GET /insights/{id} to check for completion.
     """
     await enforce_credit_limit(user_id)
+    market = validate_market(market)
 
     service = InsightService.get_instance()
 
     try:
-        result = await service.generate_for_user(user_id, market=market or "us")
+        result = await service.generate_for_user(user_id, market=market)
     except InsightAlreadyGeneratingError as e:
         if e.existing_insight.get("retry"):
             raise HTTPException(status_code=409, detail="Please try again")

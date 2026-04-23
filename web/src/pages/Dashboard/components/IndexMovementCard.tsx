@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import type { MarketOverviewItem } from '@/types/market';
 
@@ -24,6 +25,7 @@ interface IndexMovementCardProps {
 /* ── Shared card content (no animation wrapper) ── */
 
 function IndexCardContent({ index }: { index: MarketOverviewItem }) {
+  const { t, i18n } = useTranslation();
   const pos = index.isPositive;
   const ch = Number(index.change);
   const pct = Number(index.changePercent);
@@ -34,7 +36,7 @@ function IndexCardContent({ index }: { index: MarketOverviewItem }) {
   );
 
   const today = new Date();
-  const dateStr = `${today.getMonth() + 1}/${today.getDate()}`;
+  const dateStr = today.toLocaleDateString(i18n.language, { month: 'numeric', day: 'numeric' });
 
   const symbolLabel = index.assetType === 'index' ? `^${index.symbol}` : index.symbol;
 
@@ -67,7 +69,7 @@ function IndexCardContent({ index }: { index: MarketOverviewItem }) {
                     color: 'var(--color-text-secondary)',
                   }}
                 >
-                  ETF
+                  {t('dashboard.indexMovement.etfBadge')}
                 </span>
               )}
             </div>
@@ -138,7 +140,7 @@ function IndexCardContent({ index }: { index: MarketOverviewItem }) {
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-              No chart data
+              {t('dashboard.indexMovement.noChartData')}
             </span>
           </div>
         )}

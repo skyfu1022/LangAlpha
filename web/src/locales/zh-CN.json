@@ -210,7 +210,72 @@
     "watchlist": "自选",
     "personalizeTitle": "个性化您的体验",
     "personalizeDesc": "与我们的 AI 助手交流，自定义您的关注列表、风险偏好和提醒",
-    "personalize": "个性化"
+    "personalize": "个性化",
+    "marketOverview": "市场概览",
+    "editHolding": "编辑持仓 — {{symbol}}",
+    "quantityRequired": "数量 *",
+    "avgCostRequired": "每股均价 *",
+    "notes": "备注",
+    "relativeTime": {
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}}分钟前",
+      "hoursAgo": "{{count}}小时前",
+      "daysAgo": "{{count}}天前"
+    },
+    "brief": {
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}}分钟前",
+      "hoursAgo": "{{count}}小时前",
+      "daysAgo": "{{count}}天前",
+      "updated": "更新于 {{time}}",
+      "generateFailed": "简报生成失败，请重试。",
+      "generationTimedOut": "生成超时，请稍后重试。",
+      "alreadyGenerating": "简报正在生成中，请稍后再试。",
+      "creditLimitReached": "额度已达上限，请升级以生成更多简报。",
+      "failedToGenerate": "生成简报失败，请重试。",
+      "personalizedBrief": "个性化简报",
+      "aiGeneratedInsight": "AI 生成洞察",
+      "basedOnWatchlist": "基于您的自选和持仓",
+      "readFullBrief": "阅读完整简报",
+      "generating": "生成中...",
+      "generatePersonalizedBrief": "生成个性化简报",
+      "earlierCount": "今日更早 {{count}} 条",
+      "earlierInsights": "历史洞察",
+      "generatingFirstInsight": "正在生成首条洞察...",
+      "moreCount": "+{{count}} 更多",
+      "typePreMarket": "盘前",
+      "typeMarketUpdate": "盘中更新",
+      "typePostMarket": "盘后",
+      "typePersonalized": "个性化"
+    },
+    "watchlist": {
+      "tabWatchlist": "自选",
+      "tabPortfolio": "持仓",
+      "tabWatch": "自选",
+      "tabHoldings": "持仓",
+      "delete": "删除",
+      "edit": "编辑",
+      "addSymbol": "添加股票",
+      "addTransaction": "添加交易",
+      "stock": "股票",
+      "netAssetValue": "净资产值",
+      "hiddenShares": "*** 股",
+      "shares": "{{count}} 股"
+    },
+    "earnings": {
+      "calendarTitle": "财报日历",
+      "viewAll": "查看全部",
+      "stockCount_one": "{{count}} 只股票",
+      "stockCount_other": "{{count}} 只股票",
+      "noEarningsOnDate": "该日期暂无财报",
+      "noEarningsInPeriod": "该时段暂无财报",
+      "recent": "近期",
+      "upcoming": "即将公布"
+    },
+    "indexMovement": {
+      "etfBadge": "ETF",
+      "noChartData": "暂无图表数据"
+    }
   },
   "workspace": {
     "workspaces": "工作区",
