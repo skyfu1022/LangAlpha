@@ -79,7 +79,7 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
   const { data: indices, isLoading: indicesLoading } = useQuery<MarketOverviewItem[]>({
     queryKey: ['dashboard', 'indices', market, indexCfg.symbols],
     queryFn: async () => {
-      const { indices: next } = await getIndices(indexCfg.symbols, {}, indexCfg.types);
+      const { indices: next } = await getIndices(indexCfg.symbols, {}, indexCfg.types, indexCfg.names);
       return next.map((item) => {
         const norm = normalizeIndexSymbol(item.symbol);
         return {
@@ -92,7 +92,7 @@ export function useDashboardData(market: MarketRegion = 'us'): DashboardData {
     // without populating the cache as "fresh", thereby triggering an immediate background fetch
     placeholderData: (): MarketOverviewItem[] =>
       indexCfg.symbols.map((s) => ({
-        ...fallbackIndex(normalizeIndexSymbol(s)),
+        ...fallbackIndex(normalizeIndexSymbol(s), indexCfg.names),
         assetType: indexCfg.types[normalizeIndexSymbol(s)] ?? 'index',
       })),
     refetchInterval: isMarketOpen ? 30000 : 60000,

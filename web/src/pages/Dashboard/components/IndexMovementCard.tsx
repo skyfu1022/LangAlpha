@@ -165,7 +165,11 @@ function IndexCard({ index, delay }: IndexCardProps) {
         borderColor: 'var(--color-border-muted)',
         backgroundColor: 'var(--color-bg-card)',
       }}
-      onClick={() => navigate(`/market?symbol=${targetSymbol}`)}
+      onClick={() => {
+        const params = new URLSearchParams({ symbol: targetSymbol });
+        if (index.name) params.set('name', index.name);
+        navigate(`/market?${params}`);
+      }}
       onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-default)')}
       onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--color-border-muted)')}
     >
@@ -286,7 +290,12 @@ function IndexStackWidget({ indices }: { indices: MarketOverviewItem[] }) {
               backgroundColor: 'var(--color-bg-card)',
               touchAction: 'pan-y',
             }}
-            onClick={() => navigate(`/market?symbol=${index.assetType === 'index' ? `^${index.symbol}` : index.symbol}`)}
+            onClick={() => {
+              const sym = index.assetType === 'index' ? `^${index.symbol}` : index.symbol;
+              const params = new URLSearchParams({ symbol: sym });
+              if (index.name) params.set('name', index.name);
+              navigate(`/market?${params}`);
+            }}
           >
             <IndexCardContent index={index} />
           </motion.div>

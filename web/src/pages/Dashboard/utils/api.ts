@@ -134,10 +134,10 @@ function normalizeIndexSymbol(s: string): string {
   return String(s).replace(/^\^/, '').toUpperCase();
 }
 
-function fallbackIndex(norm: string): IndexData {
+function fallbackIndex(norm: string, names: Record<string, string> = INDEX_NAMES): IndexData {
   return {
     symbol: norm,
-    name: INDEX_NAMES[norm] ?? norm,
+    name: names[norm] ?? norm,
     price: 0,
     change: 0,
     changePercent: 0,
@@ -150,13 +150,13 @@ function fallbackIndex(norm: string): IndexData {
  * Fetch recent daily OHLCV for an index symbol via /daily/indexes/.
  * Returns sparkline data (last 30 trading days) plus latest price/change.
  */
-export async function getIndex(symbol: string, _opts: Record<string, unknown> = {}): Promise<IndexData> {
+export async function getIndex(symbol: string, _opts: Record<string, unknown> = {}, names: Record<string, string> = INDEX_NAMES): Promise<IndexData> {
   const norm = normalizeIndexSymbol(String(symbol).trim());
   try {
     const { data } = await api.get(`/api/v1/market-data/daily/indexes/${encodeURIComponent(norm)}`, {
       params: { interval: '1d' },
     });
-    return _parseDailyResponse(norm, data);
+    return _parseDailyResponse(norm, data, names);
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };
     console.error(`[API] getIndex - ${norm}: Error:`, err?.message);
@@ -169,13 +169,13 @@ export async function getIndex(symbol: string, _opts: Record<string, unknown> = 
  * Fetch recent daily OHLCV for a stock/ETF symbol via /daily/stocks/.
  * Same return shape as getIndex but uses the stocks endpoint.
  */
-export async function getStockIntraday(symbol: string, _opts: Record<string, unknown> = {}): Promise<IndexData> {
+export async function getStockIntraday(symbol: string, _opts: Record<string, unknown> = {}, names: Record<string, string> = INDEX_NAMES): Promise<IndexData> {
   const norm = String(symbol).trim().toUpperCase();
   try {
     const { data } = await api.get(`/api/v1/market-data/daily/stocks/${encodeURIComponent(norm)}`, {
       params: { interval: '1d' },
     });
-    return _parseDailyResponse(norm, data);
+    return _parseDailyResponse(norm, data, names);
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };
     console.error(`[API] getStockIntraday - ${norm}: Error:`, err?.message);
@@ -185,7 +185,7 @@ export async function getStockIntraday(symbol: string, _opts: Record<string, unk
 }
 
 /** Parse daily OHLCV response → IndexData with sparkline from recent closes. */
-function _parseDailyResponse(norm: string, resp: { data?: IntradayPoint[] }): IndexData {
+function _parseDailyResponse(norm: string, resp: { data?: IntradayPoint[] }, names: Record<string, string> = INDEX_NAMES): IndexData {
   const pts: IntradayPoint[] = resp?.data ?? [];
 
   if (!Array.isArray(pts) || !pts.length) {
@@ -206,7 +206,7 @@ function _parseDailyResponse(norm: string, resp: { data?: IntradayPoint[] }): In
 
   return {
     symbol: norm,
-    name: INDEX_NAMES[norm] ?? norm,
+    name: names[norm] ?? norm,
     price: Math.round(price * 100) / 100,
     change: Math.round(change * 100) / 100,
     changePercent: Math.round(changePercent * 100) / 100,
@@ -226,6 +226,7 @@ export async function getIndices(
   symbols: string[] = INDEX_SYMBOLS,
   _opts: Record<string, unknown> = {},
   types: Record<string, 'index' | 'etf'> = {},
+  names: Record<string, string> = INDEX_NAMES,
 ): Promise<IndicesResult> {
   const list = symbols.map((s: string) => normalizeIndexSymbol(String(s).trim()));
   const indexSyms = list.filter((s) => types[s] !== 'etf');
@@ -238,15 +239,31 @@ export async function getIndices(
     Promise.all(list.map(async (norm: string) => {
       const isEtf = types[norm] === 'etf';
       try {
-        const result = isEtf ? await getStockIntraday(norm) : await getIndex(norm);
-        return { symbol: norm, sparklineData: result.sparklineData };
+        const result = isEtf ? await getStockIntraday(norm, {}, names) : await getIndex(norm, {}, names);
+        return {
+          symbol: norm,
+          sparklineData: result.sparklineData,
+          price: result.price,
+          change: result.change,
+          changePercent: result.changePercent,
+          isPositive: result.isPositive,
+          previousClose: result.previousClose,
+        };
       } catch {
-        return { symbol: norm, sparklineData: [] as SparklinePoint[] };
+        return {
+          symbol: norm,
+          sparklineData: [] as SparklinePoint[],
+          price: 0,
+          change: 0,
+          changePercent: 0,
+          isPositive: true,
+          previousClose: null as number | null,
+        };
       }
     })),
   ]);
 
-  const sparklineMap: Record<string, SparklinePoint[]> = Object.fromEntries(sparklineResults.map((r) => [r.symbol, r.sparklineData]));
+  const sparklineMap: Record<string, typeof sparklineResults[number]> = Object.fromEntries(sparklineResults.map((r) => [r.symbol, r]));
 
   // Merge snapshot maps from both endpoints
   const buildSnapshotMap = (resp: SnapshotResponse): Record<string, SnapshotEntry> => {
@@ -260,22 +277,39 @@ export async function getIndices(
   let failedCount = 0;
   const indices: IndexData[] = list.map((norm: string) => {
     const snap = snapshotMap[norm];
-    if (snap && snap.price != null) {
+    const spark = sparklineMap[norm];
+    const sparklineData = spark?.sparklineData || [];
+
+    // Prefer snapshot price; fall back to daily data price
+    if (snap && snap.price != null && snap.price > 0) {
       const change = snap.change ?? 0;
       const changePct = snap.change_percent ?? (snap.previous_close ? ((change / snap.previous_close) * 100) : 0);
       return {
         symbol: norm,
-        name: INDEX_NAMES[norm] ?? snap.name ?? norm,
+        name: names[norm] ?? snap.name ?? norm,
         price: Math.round(snap.price * 100) / 100,
         change: Math.round(change * 100) / 100,
         changePercent: Math.round(changePct * 100) / 100,
         isPositive: change >= 0,
         previousClose: snap.previous_close ?? null,
-        sparklineData: sparklineMap[norm] || [],
+        sparklineData,
+      };
+    }
+    // Snapshot unavailable or price=0 — use daily OHLCV price if available
+    if (spark && spark.price > 0) {
+      return {
+        symbol: norm,
+        name: names[norm] ?? snap?.name ?? norm,
+        price: spark.price,
+        change: spark.change,
+        changePercent: spark.changePercent,
+        isPositive: spark.isPositive,
+        previousClose: spark.previousClose ?? null,
+        sparklineData,
       };
     }
     failedCount++;
-    return { ...fallbackIndex(norm), sparklineData: sparklineMap[norm] || [] };
+    return { ...fallbackIndex(norm, names), sparklineData };
   });
 
   return { indices, failedCount };

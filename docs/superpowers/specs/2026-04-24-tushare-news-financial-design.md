@@ -1,7 +1,7 @@
 # TuShare 新闻资讯与财务报表数据源设计
 
 **日期：** 2026-04-24
-**状态：** 已确认
+**状态：** 已修订
 **范围：** 在现有 data_client 架构中扩展 TuShare，新增新闻资讯和财务报表两个数据领域，供中国市场优先使用。
 
 ## 1. 背景与目标
@@ -41,9 +41,18 @@ src/data_client/
 │   ├── data_source.py               # 已有：行情（不动）
 │   ├── news_data_source.py          # 新增：NewsDataSource 实现
 │   └── financial_data_source.py     # 新增：FinancialDataSource 实现
-├── news_data_provider.py            # 修改：注册 TuShare 为 CN 市场新闻源
-├── financial_data_provider.py       # 修改：注册 TuShare 为 CN 财务数据源
+├── news_data_provider.py            # 修改：保留 markets 元数据，按 market 路由
+├── financial_data_provider.py       # 修改：按 symbol/market 路由 + unsupported fallback 语义
 └── registry.py                      # 修改：注册新 source
+
+src/config/
+├── models.py                        # 修改：新增 FinancialDataConfig
+└── settings.py                      # 修改：增加 get_financial_data_providers()
+
+src/server/app/
+└── news.py                          # 修改：market 透传给 NewsDataProvider 做 source 选择
+
+config.yaml                          # 修改：news_data 增加 markets；新增 financial_data.providers
 
 mcp_servers/
 └── tushare_price_mcp_server.py      # 扩展：增加新闻和财务工具
@@ -66,6 +75,13 @@ Agent (MCP)    ←→  MCP Server Tools  ←→  TuShare Data Sources
 ### 3.3 共享 TuShareClient
 
 所有 data source 共享同一个 `TuShareClient` 单例（复用现有的 `get_tushare_client()`），统一 token 认证和连接管理。
+
+### 3.4 与现有 Provider 架构对齐
+
+- **新闻 provider 不能只改 YAML**：当前 `NewsDataProvider` 仅按顺序 fallback，不识别 `markets`。本次需要把 `news_data.providers[*].markets` 保留到运行时，在 provider 层按 `market` 先筛 source，再执行 fallback。
+- **新闻 market 由 router 显式透传**：`GET /api/v1/news?market=cn` 已有 `market` 参数，但当前只用于结果过滤。修订后 `src/server/app/news.py` 需要把 `market` 一并传给 `provider.get_news(...)`，用于 source 选择；具体 data source 接口保持不变。
+- **财务 provider 需要补 config plumbing**：当前 `get_financial_data_provider()` 是硬编码装配 FMP/yfinance/ginlix-data，不读取 YAML。修订后新增 `financial_data.providers` 配置，并在 `src/config/models.py`、`src/config/settings.py`、`src/data_client/registry.py` 中完整接线。
+- **financial / intel 继续分层**：`FinancialDataProvider` 仍保持 `financial` 与 `intel` 双通道结构。本 spec 仅让 `provider.financial` 变为 config-driven + market-aware；`provider.intel` 继续沿用现有 ginlix-data 装配方式，不与 `financial_data.providers` 混合。
 
 ## 4. TuShare Client 扩展
 
@@ -101,10 +117,12 @@ Agent (MCP)    ←→  MCP Server Tools  ←→  TuShare Data Sources
 - 有 tickers 时获取全量新闻，在返回结果中按股票名称/代码关键词过滤（TuShare news 接口不支持按个股过滤，此为已知限制，个股过滤结果可能不完整）
 - `published_after/before` 映射为 TuShare 的 `start_date/end_date`
 - `limit` 控制返回条数（默认 20，上限 100）
-- `cursor` 基于时间戳分页：cursor 为上一页最后一条新闻的发布时间，下一页用 `start_date=cursor` 继续拉取
+- `cursor` 改为**不透明游标**，编码 `{published_at, article_id}`，避免直接暴露分页细节
+- 分页语义固定为**按时间倒序**：下一页使用 `published_before/end_date = cursor.published_at` 继续拉取，而不是 `start_date=cursor`
+- 为处理“相同发布时间多条新闻”的边界，data source 需要在本地按 `(published_at, article_id)` 去重，并过滤掉上一页边界记录后再裁剪到 `limit`
 - `order` 默认按时间倒序
 - 返回格式：`{results: [...], count: int, next_cursor: str|None}`
-- 每条结果映射为：`{id, title, content/summary, source, url, published_at, tickers, market: "cn"}`
+- 每条结果映射为统一 News API schema：`{id, title, description, article_url, published_at, source: {name, ...}, tickers, image_url, keywords, sentiments}`
 
 **`get_news_article(article_id, user_id)`：**
 
@@ -126,7 +144,13 @@ news_data:
       markets: [all]       # fallback
 ```
 
-市场路由逻辑：CN 市场 → TuShare 优先，失败 fallback 到 fmp/yfinance；US 市场 → ginlix-data 优先。
+运行时设计：
+
+- `NewsDataProvider` 改为保存 `ProviderEntry(name, source, markets)`，而不是简单的 `(name, source)` 元组
+- `registry.py` 在构建 news provider 时，必须把 `config.yaml` 中的 `markets` 原样带入 entry
+- `provider.get_news(..., market="cn")` 时只尝试 `markets` 包含 `cn` 或 `all` 的 source；`market="us"` 同理
+- 当 `market` 为空时，保持现有顺序 fallback 行为
+- 市场路由结果：CN 市场 → TuShare 优先，失败 fallback 到 fmp/yfinance；US 市场 → ginlix-data 优先
 
 ## 6. 财务报表 Data Source
 
@@ -143,7 +167,7 @@ news_data:
 | `get_company_profile()` | `stock_basic()` | 公司基本信息 |
 | `get_realtime_quote()` | `daily_basic()` | 当日行情指标（PE、PB 等） |
 
-**不适用的方法（返回 None，让 fallback chain 处理）：**
+**不适用的方法（抛出 unsupported 异常，让 fallback chain 继续）：**
 
 - `get_analyst_price_targets()` — 中国市场分析师目标价
 - `get_analyst_ratings()` — 中国市场评级
@@ -152,6 +176,12 @@ news_data:
 - `get_revenue_by_segment()` — 分部营收
 - `get_sector_performance()` — 板块表现
 - `screen_stocks()` / `search_stocks()` — 条件选股
+
+实现约束：
+
+- 不能返回 `None` 作为“跳过当前 source”的信号，因为现有 fallback 包装器会把 `None` 视为成功返回
+- 推荐做法：这些方法显式抛出 `NotImplementedError`（或项目内新增等价的 unsupported capability 异常）
+- `FallbackFinancialDataSource` 需要将这类异常视为**预期 fallback**，继续尝试下一个 source，并使用较低级别日志记录，避免污染 warning
 
 ### 6.2 数据映射要点
 
@@ -169,7 +199,18 @@ financial_data:
       markets: [cn]        # CN 财务数据首选
     - name: fmp
       markets: [all]       # fallback
+    - name: yfinance
+      markets: [all]       # free fallback
 ```
+
+接线要求：
+
+- 在 `src/config/models.py` 中新增 `FinancialDataConfig`，结构与 `MarketDataConfig` / `NewsDataConfig` 一致，字段为 `providers: List[MarketDataProviderConfig]`
+- 在 `InfrastructureConfig` 中新增 `financial_data: FinancialDataConfig`
+- 在 `src/config/settings.py` 中新增 `get_financial_data_providers()`，并提供与当前行为兼容的默认值（至少包含 `fmp`、`yfinance`）
+- 在 `src/data_client/registry.py` 中重写 `get_financial_data_provider()` 的 financial 装配逻辑：按配置顺序注册 source，并保留每个 source 的 `markets`
+- `FallbackFinancialDataSource` 需要基于 `symbol_market(symbol)` 或等价逻辑优先选择匹配 market 的 source；无 symbol 的方法保持顺序 fallback
+- `provider.intel` 维持现有 ginlix-data 注册逻辑，不纳入本 YAML
 
 ### 6.4 Data Source 额外公共方法
 
@@ -204,20 +245,24 @@ financial_data:
 
 最小改动策略，与 yfinance 模式一致：
 
-1. **新闻**：现有 `GET /api/v1/news?market=cn` 路由已有市场区分逻辑，provider chain 注册 TuShare 后自动生效，无需前端改动
+1. **新闻**：前端 API 合约不变，仍调用 `GET /api/v1/news?market=cn`；但后端需要补上 `market -> provider routing` 透传，不能只依赖结果过滤
 2. **Dashboard 新闻卡片**：如需展示 CN 新闻，根据 watchlist 自动混合展示
 3. **财务数据**：Agent 侧通过 MCP 自动可用。前端暂不增加独立财务报表页面
 
 ## 9. 测试策略
 
 - 在 `tests/unit/` 下为每个新 data source 写单元测试，mock TuShare API 响应
-- 重点测试：字段映射正确性、空结果处理、市场路由逻辑、cursor 分页
+- 重点测试：字段映射正确性、空结果处理、新闻 provider 市场路由、financial provider config 装配、unsupported capability fallback、cursor 分页去重
+- 配置测试：`financial_data.providers` 能被 `InfrastructureConfig` 正确解析；默认值保持与当前行为兼容
+- 路由测试：`src/server/app/news.py` 在 `market=cn/us` 下会把 market 透传给 provider，而不仅仅是对结果做后过滤
 - MCP 工具测试：验证工具注册和参数传递到 data source 方法
 
 ## 10. 实现顺序
 
-1. 扩展 `client.py` — 添加所有新闻和财务 API 方法
-2. 实现 `TuShareNewsDataSource` + 注册到 provider chain
-3. 实现 `TuShareFinancialDataSource` + 注册到 provider chain
-4. 扩展 MCP server — 增加新闻和财务工具
-5. 编写单元测试
+1. 补 config plumbing：`config.yaml`、`src/config/models.py`、`src/config/settings.py`
+2. 调整 provider 装配：news provider 保留 `markets`；financial provider 改为 config-driven + market-aware
+3. 扩展 `client.py` — 添加所有新闻和财务 API 方法
+4. 实现 `TuShareNewsDataSource` + 稳定 cursor 语义
+5. 实现 `TuShareFinancialDataSource` + unsupported capability fallback 语义
+6. 扩展 MCP server — 增加新闻和财务工具
+7. 编写单元测试

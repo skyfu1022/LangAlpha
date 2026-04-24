@@ -179,12 +179,13 @@ function MarketViewInner() {
   // Handle URL parameters (symbol + returnTo from chat context)
   useEffect(() => {
     const symbolParam = searchParams.get('symbol');
+    const nameParam = searchParams.get('name');
     const returnToParam = searchParams.get('returnTo');
     if (symbolParam) {
       const symbol = symbolParam.trim().toUpperCase();
       if (symbol && symbol !== selectedStock) {
         setSelectedStock(symbol);
-        setSelectedStockDisplay(null);
+        setSelectedStockDisplay(nameParam ? { name: nameParam, exchange: '' } : null);
         setChartMeta(null);
       }
     }

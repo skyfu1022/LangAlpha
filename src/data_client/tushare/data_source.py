@@ -174,7 +174,7 @@ class TuShareDataSource:
         import asyncio
 
         results = await asyncio.gather(
-            *[self._snapshot_one(s) for s in symbols],
+            *[self._snapshot_one(s, asset_type=asset_type) for s in symbols],
             return_exceptions=True,
         )
         snapshots: list[dict[str, Any]] = []
@@ -185,9 +185,16 @@ class TuShareDataSource:
             snapshots.append(r)
         return snapshots
 
-    async def _snapshot_one(self, symbol: str) -> dict[str, Any]:
+    async def _snapshot_one(self, symbol: str, asset_type: str = "stocks") -> dict[str, Any]:
         ts_code = self._to_ts_code(symbol)
-        data = await self._client.daily(ts_code=ts_code)
+        is_etf = self._is_etf(ts_code)
+
+        if asset_type == "indices" and not is_etf:
+            data = await self._client.index_daily(ts_code=ts_code)
+        elif is_etf:
+            data = await self._client.fund_daily(ts_code=ts_code)
+        else:
+            data = await self._client.daily(ts_code=ts_code)
         if not data:
             return {"symbol": symbol, "price": None}
         row = data[0]
